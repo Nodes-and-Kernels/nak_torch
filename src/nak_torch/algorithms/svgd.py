@@ -11,41 +11,28 @@ import numpy as np
 import torch
 from typing import Optional, Callable
 from tqdm import tqdm
-from nak_torch.tools.kernel import sqexp_kernel_elem
-from jaxtyping import Float
-from torch import Tensor
+from nak_torch.tools.kernel import sqexp_kernel_elem, kernel_grad_and_value_factory
 from nak_torch.tools.types import KernelFunction, BatchGradLogDensity, BatchPtType
 from nak_torch.tools.util import batched_grad_log_density_factory, initialize_particles
 
 
 def create_svgd_step(
-    kernel_elem: KernelFunction,
-    grad_log_p: BatchGradLogDensity,
-    kernel_length_scale: float
+    kernel_elem: KernelFunction, grad_log_p: BatchGradLogDensity, *kernel_elem_args
 ) -> Callable[[BatchPtType], BatchPtType]:
-    kernel_grad_val = torch.func.grad_and_value(
-        # This is something to be examined carefully: do we have (previous version)
-        #lambda x, y: kernel_elem(x, y, kernel_length_scale), argnums=1
-        # or do we have (my suggestion)
-        lambda x, y: kernel_elem(x, y, kernel_length_scale), argnums=0
-        # ?
-    )
-    kernel_grad_val_vec = torch.vmap(
-        torch.vmap(kernel_grad_val, in_dims=(None, 0)),
-        in_dims=(0, None)
+    kernel_grad_val = kernel_grad_and_value_factory(
+        kernel_elem, which_argnum=1, *kernel_elem_args
     )
 
     def svgd_step_dir(points: BatchPtType):
-        # kg[i,j,k] = grad_2(k) k(x_i, x_j), k[j,i] = k(x_i, x_j)
-        k_grad, k_eval = kernel_grad_val_vec(points, points)
-        # lpg[i,k] = grad(k) log_p(x_i)
+        # ASSUME SYMMETRY OF KERNEL
+        # kg[i,j,ell] = grad(x_j[ell]) k(x_i, x_j), k[i,j] = k(x_i, x_j)
+        k_grad, k_eval = kernel_grad_val(points, points)
+        # lpg[j,ell] = grad(x_j[ell]) log_p(x_j)
         log_p_grad_ev = grad_log_p(points)
-        term_1 = k_eval.T @ log_p_grad_ev
-        # This is something to be examined carefully: do we have (previous version)
-        #term_2 = k_grad.sum(1)
-        # or do we have (my suggestion)
-        term_2 = k_grad.sum(0)
-        # ?
+        # term_1[i, ell] = sum_j k(i, j) grad(x_j[ell]) log_p(x_j)
+        term_1 = k_eval @ log_p_grad_ev
+        # term_2[i, ell] = sum_j grad(x_j[ell]) k(x_i, x_j)
+        term_2 = k_grad.sum(1)
         return (term_1 + term_2) / points.shape[0]
 
     return svgd_step_dir
@@ -67,7 +54,7 @@ def svgd(
     is_log_density_batched: bool = False,
     grad_log_density: Optional[BatchGradLogDensity] = None,
     verbose: bool = False,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
         warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
@@ -75,9 +62,7 @@ def svgd(
     if seed is not None:
         torch.manual_seed(seed)
 
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds
-    )
+    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
 
     if keep_all:
         trajectories = torch.empty(
@@ -87,18 +72,18 @@ def svgd(
     else:
         trajectories = torch.empty(())
 
-    grad_log_p = batched_grad_log_density_factory(log_density, is_log_density_batched, grad_log_density)
+    grad_log_p = batched_grad_log_density_factory(
+        log_density, is_log_density_batched, grad_log_density
+    )
     step_fcn = create_svgd_step(kernel_elem, grad_log_p, kernel_length_scale)
-    
-    trajectories[0].copy_(particles)
-    
-    for idx in tqdm(range(n_steps-1), disable=not verbose):
+
+    for idx in tqdm(range(n_steps), disable=not verbose):
         particles_diff = step_fcn(particles)
         with torch.no_grad():
             particles = particles + lr * particles_diff
             if bounds is not None:
                 particles.clamp_(bounds[0], bounds[1])
         if keep_all:
-            trajectories[idx+1].copy_(particles)
+            trajectories[idx].copy_(particles)
 
     return trajectories.detach() if keep_all else particles.unsqueeze_(0)
