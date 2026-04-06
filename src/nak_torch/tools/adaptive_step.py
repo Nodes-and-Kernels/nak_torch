@@ -30,6 +30,7 @@ WeightMatrix = Float[Tensor, "rows weights"]
 NormFunction = Callable[[DataTensor], NormTensor]
 DiffFunction = Callable[[TimeTensor, DataTensor, Any], DataTensor]
 
+
 class status_codes(IntEnum):
     SUCCESS = 0
     GENERAL_ERROR = 1
@@ -42,11 +43,14 @@ class StepResult(NamedTuple):
     y: DataTensor
     error_estimate: Optional[DataTensor]
 
+
 class ODETerm(torch.nn.Module):
     vf: DiffFunction
+
     def __init__(self, diff):
         super().__init__()
         self.vf = diff
+
 
 class ButcherTableau:
     def __init__(
@@ -150,10 +154,15 @@ class ButcherTableau:
         If that is the case, we can reuse the result from the previous step.
         """
         is_lower_triangular = (torch.triu(self.a, diagonal=1) == 0.0).all()
-        first_node_is_t0 = (self.c[0] == 0.0)
-        last_node_is_t1 = (self.c[-1] == 1.0)
-        first_stage_explicit = (self.a[0, 0] == 0.0)
-        ret = is_lower_triangular & first_node_is_t0 & last_node_is_t1 & first_stage_explicit
+        first_node_is_t0 = self.c[0] == 0.0
+        last_node_is_t1 = self.c[-1] == 1.0
+        first_stage_explicit = self.a[0, 0] == 0.0
+        ret = (
+            is_lower_triangular
+            & first_node_is_t0
+            & last_node_is_t1
+            & first_stage_explicit
+        )
         return bool(ret.to(dtype=torch.bool).item())
 
     def is_ssal(self) -> bool:
@@ -163,15 +172,18 @@ class ButcherTableau:
         return the last stage result instead.
         """
         is_lower_triangular = (torch.triu(self.a, diagonal=1) == 0.0).all()
-        last_node_is_t1 = (self.c[-1] == 1.0)
-        last_stage_explicit = (self.a[-1, -1] == 0.0)
+        last_node_is_t1 = self.c[-1] == 1.0
+        last_stage_explicit = self.a[-1, -1] == 0.0
         ret = is_lower_triangular & last_node_is_t1 & last_stage_explicit
         return bool(ret.item())
+
 
 class StepMethodState:
     pass
 
+
 StepMethodStateBound = TypeVar("StepMethodStateBound", bound=StepMethodState)
+
 
 class StepMethod(Generic[StepMethodStateBound], ABC, torch.nn.Module):
     def __init__(self):
@@ -185,12 +197,17 @@ class StepMethod(Generic[StepMethodStateBound], ABC, torch.nn.Module):
         f0: Optional[DataTensor],
         *,
         args: Any,
-        t0: float = 0.,
+        t0: float = 0.0,
     ) -> StepMethodStateBound:
         pass
 
     @abstractmethod
-    def merge_states(self, accept: AcceptTensor, current: StepMethodStateBound, previous: StepMethodStateBound) -> StepMethodStateBound:
+    def merge_states(
+        self,
+        accept: AcceptTensor,
+        current: StepMethodStateBound,
+        previous: StepMethodStateBound,
+    ) -> StepMethodStateBound:
         pass
 
     @abstractmethod
@@ -206,10 +223,12 @@ class StepMethod(Generic[StepMethodStateBound], ABC, torch.nn.Module):
     ) -> tuple[StepResult, StepMethodStateBound, Optional[StatusTensor]]:
         pass
 
+
 @dataclass
 class ERKState(StepMethodState):
     tableau: ButcherTableau
     prev_vf1: Optional[DataTensor]
+
 
 class ExplicitRungeKutta(StepMethod[ERKState], torch.nn.Module):
     def __init__(self, term: Optional[ODETerm], tableau: ButcherTableau):
@@ -225,7 +244,7 @@ class ExplicitRungeKutta(StepMethod[ERKState], torch.nn.Module):
         f0: Optional[DataTensor],
         *,
         args: Any,
-        t0: float = 0.,
+        t0: float = 0.0,
     ) -> ERKState:
         dtype, device = y0.dtype, y0.device
         if self.tableau.fsal:
@@ -248,7 +267,9 @@ class ExplicitRungeKutta(StepMethod[ERKState], torch.nn.Module):
             prev_vf1=prev_vf1,
         )
 
-    def merge_states(self, accept: AcceptTensor, current: ERKState, previous: ERKState) -> ERKState:
+    def merge_states(
+        self, accept: AcceptTensor, current: ERKState, previous: ERKState
+    ) -> ERKState:
         prev_vf1 = previous.prev_vf1
         current_vf1 = current.prev_vf1
         if current_vf1 is None or prev_vf1 is None:
@@ -306,6 +327,7 @@ class ExplicitRungeKutta(StepMethod[ERKState], torch.nn.Module):
             None,
         )
 
+
 class Dopri5(ExplicitRungeKutta):
     TABLEAU = ButcherTableau.from_lists(
         c=[0.0, 1 / 5, 3 / 10, 4 / 5, 8 / 9, 1.0, 1.0],
@@ -348,6 +370,7 @@ class Dopri5(ExplicitRungeKutta):
     def convergence_order(self):
         return 5
 
+
 def rms_norm(y: DataTensor) -> NormTensor:
     """Root mean squared error norm.
 
@@ -361,16 +384,20 @@ def rms_norm(y: DataTensor) -> NormTensor:
     # `vector_norm` autmatically deals with complex vectors correctly
     return torch.linalg.vector_norm(y / math.sqrt(y.shape[1]), ord=2, dim=1)
 
+
 def max_norm(y: DataTensor) -> NormTensor:
     """Maximums norm."""
     return torch.linalg.vector_norm(y, dim=1, ord=torch.inf)
+
 
 class AdaptiveStepSizeControllerState(ABC):
     almost_zero: Float
     dt_min: Optional[Float]
     dt_max: Optional[Float]
 
-    def __init__(self, almost_zero: Float, dt_min: Optional[Float], dt_max: Optional[Float]):
+    def __init__(
+        self, almost_zero: Float, dt_min: Optional[Float], dt_max: Optional[Float]
+    ):
         assert almost_zero is not None
         self.almost_zero, self.dt_min, self.dt_max = almost_zero, dt_min, dt_max
 
@@ -386,6 +413,7 @@ class AdaptiveStepSizeControllerState(ABC):
         dt_max: Optional[Tensor],
     ) -> "AdaptiveStepSizeControllerState":
         pass
+
 
 class PIDState(AdaptiveStepSizeControllerState):
     def __init__(
@@ -451,12 +479,17 @@ class PIDState(AdaptiveStepSizeControllerState):
             method_order, default_ratio, default_ratio, almost_zero, dt_min, dt_max
         )
 
-ControllerStateBound = TypeVar("ControllerStateBound", bound="AdaptiveStepSizeControllerState")
+
+ControllerStateBound = TypeVar(
+    "ControllerStateBound", bound="AdaptiveStepSizeControllerState"
+)
+
 
 class AdaptiveStepSizeController(ABC, Generic[ControllerStateBound], torch.nn.Module):
     rtol: Float
     atol: Float
     norm: NormFunction
+
     def __init__(self, rtol: float, atol: float, norm: NormFunction):
         super().__init__()
         self.register_buffer("rtol", torch.tensor(rtol))
@@ -482,7 +515,10 @@ class AdaptiveStepSizeController(ABC, Generic[ControllerStateBound], torch.nn.Mo
 
     @abstractmethod
     def merge_states(
-        self, running: AcceptTensor, current: ControllerStateBound, previous: ControllerStateBound
+        self,
+        running: AcceptTensor,
+        current: ControllerStateBound,
+        previous: ControllerStateBound,
     ) -> ControllerStateBound:
         pass
 
@@ -504,7 +540,7 @@ class AdaptiveStepSizeController(ABC, Generic[ControllerStateBound], torch.nn.Mo
         dt0: Optional[TimeTensor],
         *,
         dtype: Optional[torch.dtype] = None,
-        device: Optional[torch.device | str] = None
+        device: Optional[torch.device | str] = None,
     ) -> tuple[TimeTensor, ControllerStateBound, Optional[DataTensor]]:
         if dt0 is None:
             raise ValueError("Expected dt0")
@@ -512,32 +548,32 @@ class AdaptiveStepSizeController(ABC, Generic[ControllerStateBound], torch.nn.Mo
         dtype, device = self.initialize_torch_args(dtype, device)
 
         dt_min, dt_max = self.get_dt_lims(dtype, device)
-        state = self.initial_state(method_order, batch_size, dtype, device, dt_min, dt_max)
+        state = self.initial_state(
+            method_order, batch_size, dtype, device, dt_min, dt_max
+        )
         assert state.almost_zero is not None
         return dt0, state, f0
 
-    def initialize_torch_args(self, dtype: Optional[torch.dtype], device: Optional[torch.device | str]) -> tuple[torch.dtype, torch.device]:
+    def initialize_torch_args(
+        self, dtype: Optional[torch.dtype], device: Optional[torch.device | str]
+    ) -> tuple[torch.dtype, torch.device]:
         if device is None:
             device = torch.get_default_device()
         elif isinstance(device, str):
             device = torch.device(device)
         if dtype is None:
             dtype = torch.get_default_dtype()
-        return dtype,device
+        return dtype, device
 
     def get_dt_lims(self, dtype: torch.dtype, device: torch.device):
         dt_min = self.dt_min
         if dt_min is not None:
-            dt_min = torch.tensor(
-                dt_min, dtype=dtype, device=device
-            )
+            dt_min = torch.tensor(dt_min, dtype=dtype, device=device)
         dt_max = self.dt_max
         if dt_max is not None:
-            dt_max = torch.tensor(
-                dt_max, dtype=dtype, device=device
-            )
+            dt_max = torch.tensor(dt_max, dtype=dtype, device=device)
 
-        return dt_min,dt_max
+        return dt_min, dt_max
 
     def adapt_step_size(
         self,
@@ -597,6 +633,7 @@ class AdaptiveStepSizeController(ABC, Generic[ControllerStateBound], torch.nn.Mo
             status,
         )
 
+
 class PIDController(AdaptiveStepSizeController[PIDState]):
     """A PID step size controller.
 
@@ -608,12 +645,14 @@ class PIDController(AdaptiveStepSizeController[PIDState]):
     [1] Söderlind, G. (2003). Digital Filters in Adaptive Time-Stepping. ACM
         Transactions on Mathematical Software, 29, 1–26.
     """
+
     atol: Float
     rtol: Float
     term: Any
     norm: Callable[[DataTensor], NormTensor]
     dt_min: Float
     dt_max: Float
+
     def __init__(
         self,
         atol: float,
@@ -721,18 +760,27 @@ class PIDController(AdaptiveStepSizeController[PIDState]):
     # The following methods should be on AdaptiveStepSizeController
     ################################################################################
 
+
 def step(
-    term: ODETerm, step_method: StepMethod[StepMethodStateBound],
+    term: ODETerm,
+    step_method: StepMethod[StepMethodStateBound],
     step_size_controller: AdaptiveStepSizeController[ControllerStateBound],
     integrator_state: tuple[StepMethodStateBound, ControllerStateBound],
-    running: AcceptTensor, dt: TimeTensor,
-    t: TimeTensor, y: DataTensor, args: Any
-) -> tuple[TimeTensor, TimeTensor, tuple[StepMethodStateBound, ControllerStateBound], DataTensor, AcceptTensor]:
-    """ given y(t) and function (t,y,args)->f(t,y,args), return (dt, t, state, y(t+dt), accept)"""
+    running: AcceptTensor,
+    dt: TimeTensor,
+    t: TimeTensor,
+    y: DataTensor,
+    args: Any,
+) -> tuple[
+    TimeTensor,
+    TimeTensor,
+    tuple[StepMethodStateBound, ControllerStateBound],
+    DataTensor,
+    AcceptTensor,
+]:
+    """given y(t) and function (t,y,args)->f(t,y,args), return (dt, t, state, y(t+dt), accept)"""
     method_state, controller_state = integrator_state
-    step_out = step_method.step(
-        term, y, t, dt, method_state, args=args
-    )
+    step_out = step_method.step(term, y, t, dt, method_state, args=args)
     step_result, method_state_next, method_status = step_out
     controller_out = step_size_controller.adapt_step_size(
         dt, y, step_result, controller_state
@@ -743,9 +791,7 @@ def step(
     to_update = accept & running
     t = torch.where(to_update, t + dt, t)
     y = torch.where(to_update[:, None], step_result.y, y)
-    method_state = step_method.merge_states(
-        to_update, method_state_next, method_state
-    )
+    method_state = step_method.merge_states(to_update, method_state_next, method_state)
     status = method_status
     if status is None:
         status = controller_status
@@ -760,18 +806,19 @@ def step(
 
     return dt, t, (method_state, controller_state), y, accept
 
+
 def default_particle_integrator(
-        y0: DataTensor,
-        diff: DiffFunction,
-        dt0: float,
-        *,
-        atol: Optional[float] = None,
-        rtol: Optional[float] = None,
-        pcoeff: float = 0.2,
-        icoeff: float = 0.5,
-        dcoeff: float = 0.0,
-        args: Optional[tuple] = None,
-    ):
+    y0: DataTensor,
+    diff: DiffFunction,
+    dt0: float,
+    *,
+    atol: Optional[float] = None,
+    rtol: Optional[float] = None,
+    pcoeff: float = 0.2,
+    icoeff: float = 0.5,
+    dcoeff: float = 0.0,
+    args: Optional[tuple] = None,
+):
     batch_size, dtype, device = y0.shape[0], y0.dtype, y0.device
     if dtype == torch.float16:
         atol = 1e-4 if atol is None else atol
@@ -788,13 +835,20 @@ def default_particle_integrator(
     controller = PIDController(atol, rtol, pcoeff, icoeff, dcoeff)
     dt0_v = dt0 * torch.ones(batch_size, dtype=dtype, device=device)
     t0 = torch.zeros(batch_size, dtype=dtype, device=device)
-    dt0_v, controller_state, _ = controller.init(batch_size, method.convergence_order(), dt0_v, dtype=dtype, device=device)
+    dt0_v, controller_state, _ = controller.init(
+        batch_size, method.convergence_order(), dt0_v, dtype=dtype, device=device
+    )
+
     def step_fcn(
-            state: tuple[ERKState, PIDState],
-            running: AcceptTensor, dt: TimeTensor, t: TimeTensor,
-            y: DataTensor, _args: Any
+        state: tuple[ERKState, PIDState],
+        running: AcceptTensor,
+        dt: TimeTensor,
+        t: TimeTensor,
+        y: DataTensor,
+        _args: Any,
     ):
         return step(term, method, controller, state, running, dt, t, y, _args)
+
     running_0 = torch.ones(batch_size, dtype=torch.bool, device=device)
     state_0 = (method_state, controller_state)
     return torch.compile(step_fcn), state_0, running_0, dt0_v, t0

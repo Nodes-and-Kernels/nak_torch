@@ -12,6 +12,7 @@ import copy
 
 from .msip_map import msip_map
 
+
 def _geometric_safe_step(
     particles,
     idx,
@@ -40,15 +41,15 @@ def _geometric_safe_step(
         # Normalize direction once; we will scale by effective step.
         # However, to stay consistent with your convex combination form
         # we interpret "step" as the convex weight in [0,1].
-        direction_unit = direction / dir_norm
+        # direction_unit = direction / dir_norm
 
         # Effective step is in [0, min(base_lr, lr_max)]
         step = float(min(base_lr, lr_max))
-        min_sep_sq = float(min_separation ** 2)
+        min_sep_sq = float(min_separation**2)
 
         # Build the set of "other" particles
         if particles.shape[0] > 1:
-            others = torch.cat([particles[:idx], particles[idx+1:]], dim=0)
+            others = torch.cat([particles[:idx], particles[idx + 1 :]], dim=0)
         else:
             # Only one particle: trivially safe
             new_pos = x_i + step * direction
@@ -58,7 +59,7 @@ def _geometric_safe_step(
         while step >= min_lr:
             cand = x_i + step * direction  # keep your convex formulation
             diff = cand.unsqueeze(0) - others
-            dist_sq = (diff ** 2).sum(dim=1)
+            dist_sq = (diff**2).sum(dim=1)
             if (dist_sq >= min_sep_sq).all():
                 # Geometrically safe endpoint
                 moved = True
@@ -99,7 +100,9 @@ def update_one_particle(
 
     for _ in range(max_inner_steps):
         # Compute full MSIP map given current particles
-        t_arr = msip_map(objective_function, particles, kernel_bandwidth=kernel_bandwidth)
+        t_arr = msip_map(
+            objective_function, particles, kernel_bandwidth=kernel_bandwidth
+        )
 
         with torch.no_grad():
             old_pos = particles[idx].clone()
@@ -121,7 +124,9 @@ def update_one_particle(
 
             if moved:
                 particles[idx].copy_(new_pos)
-                new_list_particles.append(copy.deepcopy(particles.detach().cpu().numpy()))
+                new_list_particles.append(
+                    copy.deepcopy(particles.detach().cpu().numpy())
+                )
             else:
                 # Could not move without violating separation; consider this an equilibrium
                 print(f"Particle {idx}: geometric blocking after {_} inner steps.")
@@ -137,16 +142,16 @@ def update_one_particle(
 def msip_geom_greedy(
     objective_function,
     n_particles=50,
-    n_steps=10,          # now interpreted as "epochs" (passes over all particles)
+    n_steps=10,  # now interpreted as "epochs" (passes over all particles)
     dim=2,
     bounds=(-5, 5),
     lr=0.1,
-    noise=0.05,          # currently unused, kept for compatibility
+    noise=0.05,  # currently unused, kept for compatibility
     kernel_bandwidth=1.0,
-    inner_tol=1e-4,      # equilibrium tolerance for a particle
+    inner_tol=1e-4,  # equilibrium tolerance for a particle
     max_inner_steps=50,  # max inner iterations per particle
     min_separation=0.2,  # NEW: minimal allowed distance between particles
-    lr_max=0.5,          # NEW: global cap on effective learning rate
+    lr_max=0.5,  # NEW: global cap on effective learning rate
     min_lr=1e-6,
     shrink_factor=0.5,
     seed=None,
@@ -180,4 +185,3 @@ def msip_geom_greedy(
             trajectories = trajectories + new_list_particles
 
     return np.array(trajectories), bounds
-

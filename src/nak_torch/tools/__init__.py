@@ -15,6 +15,5 @@ __all__ = [
     "differentiable_density_factory",
     "GaussianModel",
     "quadrature",
-    "adaptive_step"
+    "adaptive_step",
 ]
-

@@ -6,6 +6,7 @@ from tqdm import tqdm
 import numpy as np
 from nak_torch.tools.util import initialize_particles, sym_sqrtm
 
+
 def cbs_step(
     particles: BatchPtType,
     log_dens: BatchType,
@@ -17,14 +18,13 @@ def cbs_step(
     wts = torch.nn.functional.softmax(temper_log_dens, dim=0)
     particles_mean = wts @ particles
     particles_diff = particles - particles_mean
-    particles_cov = torch.einsum(
-        "bi,b,bj->ij", particles_diff, wts, particles_diff
-    )
+    particles_cov = torch.einsum("bi,b,bj->ij", particles_diff, wts, particles_diff)
     drift_term = particles_diff.neg_()
     noise_sqrt_cov = sym_sqrtm(particles_cov.mul_(motion_scaling_sq))
-    motion_term = torch.normal(
-        0., 1., particles.shape, generator=rng, device=rng.device
-    ) @ noise_sqrt_cov
+    motion_term = (
+        torch.normal(0.0, 1.0, particles.shape, generator=rng, device=rng.device)
+        @ noise_sqrt_cov
+    )
     return drift_term, motion_term
 
 
@@ -44,7 +44,7 @@ def cbs(
     is_log_density_batched: bool = False,
     verbose: bool = False,
     compile_step: bool = True,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
         warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
@@ -55,7 +55,8 @@ def cbs(
         rng.manual_seed(seed)
 
     particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds, rng)
+        n_particles, dim, init_particles, device, bounds, rng
+    )
 
     if keep_all:
         trajectories = torch.empty(

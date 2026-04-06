@@ -30,5 +30,5 @@ __all__ = [
     "gradfree_aldi",
     "eks",
     "cbs",
-    "kfrflow"
+    "kfrflow",
 ]

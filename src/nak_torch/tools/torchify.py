@@ -2,10 +2,12 @@ from typing import Callable, Any, Optional
 import torch
 from torch import Tensor
 
+
 def differentiable_density_factory(
-        log_p: Callable[[Any], float], grad_log_p: Callable[[Any], Any],
-        tensor_transform: Optional[Callable[[Tensor], Any]] = None,
-        tensor_inverse_transform: Optional[Callable[[Any], Tensor]] = None
+    log_p: Callable[[Any], float],
+    grad_log_p: Callable[[Any], Any],
+    tensor_transform: Optional[Callable[[Tensor], Any]] = None,
+    tensor_inverse_transform: Optional[Callable[[Any], Tensor]] = None,
 ):
 
     if tensor_transform is None:
@@ -43,6 +45,7 @@ def differentiable_density_factory(
             with respect to the output, and we need to compute the gradient of the loss
             with respect to the input.
             """
-            input, = ctx.saved_tensors
+            (input,) = ctx.saved_tensors
             return tensor_inverse_transform(grad_log_p(tensor_transform(input)))
+
     return Density

@@ -1,12 +1,13 @@
 # %%
 import torch
+import matplotlib.pyplot as plt
 from viz_tools import animate_trajectories_box
 from functions import himmelblau
 from nak_torch.algorithms import msip, svgd
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from datetime import datetime
-import matplotlib.pyplot as plt
+from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
 
 save_gif = False
 algorithm_name = "msip_ni"
@@ -120,7 +121,6 @@ trajectories_gf,w = msip(
     **params
 )
 
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
 pts_gf = trajectories_gf[-1]
 wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), default_kernel_matrix(pts_gf, params["kernel_length_scale"]))
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
@@ -158,7 +158,7 @@ if save_gif:
     bounds = (-15.,40.)
     fpath = f"results/gif/fredholm_{function_name}_particles_{now_stamp}.mp4"
     animate_trajectories_box(
-        log_density, trajectories, 1, bounds,
+        log_density, trajectories_fr, 1, bounds,
         save_path=fpath, writer="ffmpeg"
     )
     # fpath = f"results/gif/gradfree_{function_name}_particles_{now_stamp}.mp4"

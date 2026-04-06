@@ -1,9 +1,4 @@
 import torch
-from torch import Tensor
-from dataclasses import dataclass
-from functools import partial
-from typing import Callable, Any
-from nak_torch import GaussianModel
 
 doughnut_model = torch.compile(lambda pt: torch.linalg.norm(pt, -1))
 doughnut_obs = 2.

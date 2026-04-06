@@ -41,7 +41,7 @@ trajectories = msip_greedy(
 if save_gif:
     fpath = f"results/gif/{algorithm_name}_{function_name}_particles_{now_stamp}.gif"
     animate_trajectories_box(
-        objective_function, trajectories, 50, bounds,
+        log_density, trajectories, 50, bounds,
         save_path=fpath
     )
 # %%

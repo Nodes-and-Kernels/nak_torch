@@ -2,11 +2,12 @@ import torch
 from torch import Tensor
 from jaxtyping import Float
 
+
 def recursive_weighted_average_alpha_v(
-        y: Float[Tensor, "batch dim"],
-        alpha: Float[Tensor, " batch"],
-        log_v: Float[Tensor, " batch"],
-        eps: float = 1e-18
+    y: Float[Tensor, "batch dim"],
+    alpha: Float[Tensor, " batch"],
+    log_v: Float[Tensor, " batch"],
+    eps: float = 1e-18,
 ) -> tuple[Float[Tensor, "batch dim"], Float[Tensor, " batch"]]:
     r"""
     Compute a stable weighted average

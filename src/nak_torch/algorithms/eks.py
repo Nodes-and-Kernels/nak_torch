@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Callable
+from typing import Optional
 from jaxtyping import Float
 from torch import Tensor
 from nak_torch.tools.types import BatchPtType, GaussianModel
@@ -9,20 +9,24 @@ import numpy as np
 from nak_torch.tools.util import sym_sqrtm, initialize_particles
 
 
-def build_eks_step(eks_model: GaussianModel, dt: float, device: Optional[torch.device], compile_step: bool):
-    likelihood_precision = torch.as_tensor(eks_model.likelihood_precision, device=device)
+def build_eks_step(
+    eks_model: GaussianModel,
+    dt: float,
+    device: Optional[torch.device],
+    compile_step: bool,
+):
+    likelihood_precision = torch.as_tensor(
+        eks_model.likelihood_precision, device=device
+    )
     prior_precision = torch.as_tensor(eks_model.prior_precision, device=device)
     true_obs = torch.as_tensor(eks_model.true_obs, device=device)
     if isinstance(true_obs, Tensor):
         true_obs.reshape(1, -1)
 
-    sqrt_2 = torch.sqrt(
-        torch.tensor(2, dtype=true_obs.dtype, device=device)
-    )
+    sqrt_2 = torch.sqrt(torch.tensor(2, dtype=true_obs.dtype, device=device))
 
     def eks_step(
-            particles: BatchPtType,
-            forecast_observations: Float[Tensor, "batch obs"]
+        particles: BatchPtType, forecast_observations: Float[Tensor, "batch obs"]
     ) -> tuple[BatchPtType, Float[Tensor, "dim dim"]]:
         N_batch, dim = particles.shape
         particle_mean = particles.mean(0, True)
@@ -34,14 +38,16 @@ def build_eks_step(eks_model: GaussianModel, dt: float, device: Optional[torch.d
 
         if isinstance(likelihood_precision, float) or likelihood_precision.numel() == 1:
             likely_term = torch.einsum(
-                "ko,jo,kd->jd",
-                forecast_diff, obs_diff, particles
+                "ko,jo,kd->jd", forecast_diff, obs_diff, particles
             )
             likely_term.mul_(dt * likelihood_precision / N_batch)
         else:
             likely_term = torch.einsum(
                 "kp,pq,jq,kd->jd",
-                forecast_diff, likelihood_precision, obs_diff, particles
+                forecast_diff,
+                likelihood_precision,
+                obs_diff,
+                particles,
             )
             likely_term.mul_(dt / N_batch)
         # INPLACE
@@ -55,9 +61,10 @@ def build_eks_step(eks_model: GaussianModel, dt: float, device: Optional[torch.d
         else:
             raise ValueError()
 
-        prior_term_premul.add_(torch.eye(dim,device=device))
+        prior_term_premul.add_(torch.eye(dim, device=device))
         new_particles = torch.linalg.solve(
-            prior_term_premul, particles - likely_term, left=False)
+            prior_term_premul, particles - likely_term, left=False
+        )
         return new_particles, sqrt_prior_cov
 
     return torch.compile(eks_step) if compile_step else eks_step
@@ -78,7 +85,7 @@ def eks(
     rng: Optional[torch.Generator] = None,
     verbose: bool = False,
     compile_step: bool = True,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
         warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
@@ -107,7 +114,8 @@ def eks(
         with torch.no_grad():
             particles, noise_sqrt_cov = eks_step(particles, forecast_obs)
             noise_tens = torch.normal(
-                mean=0., std=1., size=particles.shape, generator=rng, out=noise_tens)
+                mean=0.0, std=1.0, size=particles.shape, generator=rng, out=noise_tens
+            )
             noise_samp = noise_tens @ noise_sqrt_cov
             particles = particles.add_(noise_samp)
             if bounds is not None:

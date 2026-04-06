@@ -16,19 +16,19 @@ from .msip_map import msip_map
 
 
 def update_one_particle(
-        objective_function,
-        particles: torch.Tensor,
-        idx: int,
-        lr: float = 0.1,
-        inner_tol: float = 1e-4,
-        max_inner_steps: int = 50,
-        # kernel_bandwidth: float = 1.0,
-        # bandwidth_factor: float = 0.5,
-        # bounds: tuple[float, float] = (-torch.inf, torch.inf),
-        # projection: bool = True,
-        # gradient_informed: bool = True,
-        # kernel_diag_infl: float = 0.0,
-        **msip_kwargs
+    objective_function,
+    particles: torch.Tensor,
+    idx: int,
+    lr: float = 0.1,
+    inner_tol: float = 1e-4,
+    max_inner_steps: int = 50,
+    # kernel_bandwidth: float = 1.0,
+    # bandwidth_factor: float = 0.5,
+    # bounds: tuple[float, float] = (-torch.inf, torch.inf),
+    # projection: bool = True,
+    # gradient_informed: bool = True,
+    # kernel_diag_infl: float = 0.0,
+    **msip_kwargs,
 ):
     """
     Coordinate-wise MSIP update:
@@ -52,7 +52,7 @@ def update_one_particle(
             # gradient_informed,
             # kernel_diag_infl,
             output_idx=idx,
-            **msip_kwargs
+            **msip_kwargs,
         )
 
         with torch.no_grad():
@@ -61,12 +61,10 @@ def update_one_particle(
 
             move_norm = (new_pos - old_pos).norm()
             particles[idx].copy_(new_pos)
-            new_list_particles.append(
-                particles.detach().cpu().numpy().copy()
-            )
+            new_list_particles.append(particles.detach().cpu().numpy().copy())
 
         if move_norm.isnan():
-            print('nan')
+            print("nan")
 
         if move_norm.item() < inner_tol:
             break
@@ -81,12 +79,12 @@ def msip_greedy(
     n_steps: int,
     dim: int,
     lr: float,
-    noise: float = 0.05,          # currently unused, kept for compatibility
+    noise: float = 0.05,  # currently unused, kept for compatibility
     seed: Optional[int] = None,
     device: Optional[torch.device] = None,
     init_particles: Optional[torch.Tensor | np.ndarray] = None,
     bounds: Optional[tuple[float, float]] = None,
-    **msip_kwargs
+    **msip_kwargs,
 ):
 
     if seed is not None:
@@ -97,17 +95,12 @@ def msip_greedy(
     trajectories = [particles.detach().cpu().numpy().copy()]
 
     # Outer loop: epochs
-    pbar = tqdm(total=n_steps*n_particles)
+    pbar = tqdm(total=n_steps * n_particles)
     for _ in range(n_steps):
         # Loop over particles, one at a time
         for i in range(n_particles):
             new_list_particles = update_one_particle(
-                log_density,
-                particles,
-                idx=i,
-                lr=lr,
-                bounds=bounds,
-                **msip_kwargs
+                log_density, particles, idx=i, lr=lr, bounds=bounds, **msip_kwargs
             )
             # If you want a very fine-grained trajectory, record after each particle:
             # trajectories.append(particles.detach().cpu().numpy().copy())

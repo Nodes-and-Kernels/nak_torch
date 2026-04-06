@@ -12,9 +12,8 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from torch import nn
-import random
 import math
-from torch.nn.utils import parameters_to_vector, vector_to_parameters
+from torch.nn.utils import vector_to_parameters
 
 
 

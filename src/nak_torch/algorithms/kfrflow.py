@@ -9,33 +9,39 @@
 import warnings
 import numpy as np
 import torch
-from typing import Optional, Callable
+from typing import Optional
 from tqdm import tqdm
 from nak_torch.tools.kernel import sqexp_kernel_elem
 from jaxtyping import Float
 from torch import Tensor
-from nak_torch.tools.types import BatchLogDensity, BatchType, KernelFunction, KernelMatrixType, LogDensity
+from nak_torch.tools.types import (
+    BatchLogDensity,
+    BatchType,
+    KernelFunction,
+    KernelMatrixType,
+    LogDensity,
+)
 from nak_torch.tools.util import initialize_particles
 
+
 def kfr_step(
-        kernel_matrix: KernelMatrixType,
-        grad1_kernel_tens: Float[Tensor, "batch batch dim"],
-        log_likely_eval: BatchType,
-        kernel_diag_infl: float,
-        delta_t: Float
+    kernel_matrix: KernelMatrixType,
+    grad1_kernel_tens: Float[Tensor, "batch batch dim"],
+    log_likely_eval: BatchType,
+    kernel_diag_infl: float,
+    delta_t: Float,
 ):
     M_batch = log_likely_eval.shape[0]
     diffusion_matrix = torch.einsum(
         "ild,imd->lm", grad1_kernel_tens, grad1_kernel_tens
-    ) # (M, M), 1/M factor cancels in creation of kernelized_wts
-    diffusion_matrix[
-        torch.arange(M_batch),torch.arange(M_batch)
-    ] += kernel_diag_infl
+    )  # (M, M), 1/M factor cancels in creation of kernelized_wts
+    diffusion_matrix[torch.arange(M_batch), torch.arange(M_batch)] += kernel_diag_infl
     log_wts = log_likely_eval - log_likely_eval.mean()
     wts = log_wts * delta_t
     kernelized_wts = kernel_matrix @ wts
     diffusion_soln = torch.linalg.solve(diffusion_matrix, kernelized_wts)
     return torch.einsum("jkd,k->jd", grad1_kernel_tens, diffusion_soln)
+
 
 """
     grad_kernel_tens = kernel.first_grad_kernel_tens(points, points)
@@ -60,12 +66,14 @@ def kfr_step(
     )
 """
 
+
 def kfr_kernel_tens_factory(kernel_elem: KernelFunction):
     kernel_grad_val = torch.func.grad_and_value(kernel_elem)
     kernel_matricization = torch.vmap(
-        torch.vmap(kernel_grad_val, in_dims = (None, 0, None)
-    ), in_dims = (0, None, None))
+        torch.vmap(kernel_grad_val, in_dims=(None, 0, None)), in_dims=(0, None, None)
+    )
     return kernel_matricization
+
 
 def kfrflow(
     log_like: LogDensity | BatchLogDensity,
@@ -84,7 +92,7 @@ def kfrflow(
     is_log_density_batched: bool = False,
     verbose: bool = False,
     compile_step: bool = True,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if lr is not None:
         warnings.warn("learning rate is not used in KFR-I. See n_steps_or_delta_ts")
@@ -98,15 +106,13 @@ def kfrflow(
     if compile_step:
         kfr_step_ = torch.compile(kfr_step)
 
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds
-    )
+    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
     if isinstance(n_steps_or_delta_ts, int):
         n_steps = n_steps_or_delta_ts
         delta_ts = torch.ones(n_steps) / n_steps
     elif isinstance(n_steps_or_delta_ts, Tensor):
         delta_ts = n_steps_or_delta_ts
-        if delta_ts.ndim != 1 or torch.any(delta_ts <= 0.):
+        if delta_ts.ndim != 1 or torch.any(delta_ts <= 0.0):
             raise ValueError("Unexpected values encountered in delta ts")
         delta_ts /= delta_ts.sum()
         n_steps = len(delta_ts)
@@ -126,14 +132,14 @@ def kfrflow(
 
     kernel_fcn = kfr_kernel_tens_factory(kernel_elem)
 
-    for idx in tqdm(range(n_steps), disable = not verbose):
+    for idx in tqdm(range(n_steps), disable=not verbose):
         delta_t = delta_ts[idx]
-        grad1_kernel_tens, kernel_mat = kernel_fcn(particles, particles, kernel_length_scale)
+        grad1_kernel_tens, kernel_mat = kernel_fcn(
+            particles, particles, kernel_length_scale
+        )
         log_likely_eval = log_like(particles)
         particles_diff = kfr_step_(
-            kernel_mat, grad1_kernel_tens,
-            log_likely_eval, kernel_diag_infl,
-            delta_t
+            kernel_mat, grad1_kernel_tens, log_likely_eval, kernel_diag_infl, delta_t
         )
         with torch.no_grad():
             particles = particles + particles_diff

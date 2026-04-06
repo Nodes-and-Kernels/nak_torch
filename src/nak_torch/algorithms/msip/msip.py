@@ -10,8 +10,13 @@ from nak_torch.tools.util import initialize_particles, get_keywords, quantile_di
 from .msip_map import MSIPEstimatorOutput, msip_map, get_msip_wts
 from .estimators import MSIPEstimator, MSIPFredholm
 
-from nak_torch.tools.types import LogDensity, BatchLogDensity, \
-    BatchLogDensityGradVal, BatchType, MatSelfKernelFunction
+from nak_torch.tools.types import (
+    LogDensity,
+    BatchLogDensity,
+    BatchLogDensityGradVal,
+    BatchType,
+    MatSelfKernelFunction,
+)
 
 
 def process_msip_density(
@@ -19,24 +24,24 @@ def process_msip_density(
     *_,
     is_log_density_batched: bool = False,
     gradient_decay: float = 1.0,
-    **__
+    **__,
 ) -> MSIPEstimator:
     if isinstance(log_density, MSIPEstimator):
         return log_density
     log_density_grad_val: BatchLogDensityGradVal
     if is_log_density_batched:
+
         def dens_eval(_p):
             out = log_density(_p)
             return out.sum(), out
+
         log_density_grad_val = torch.func.grad(dens_eval, has_aux=True)
     else:
-        log_density_grad_val = torch.vmap(
-            torch.func.grad_and_value(log_density))
+        log_density_grad_val = torch.vmap(torch.func.grad_and_value(log_density))
     return MSIPFredholm(gradient_decay, log_density_grad_val)
 
 
-msip_map_used_keys = get_keywords(msip_map) + \
-    get_keywords(process_msip_density)
+msip_map_used_keys = get_keywords(msip_map) + get_keywords(process_msip_density)
 
 
 def msip(
@@ -57,10 +62,10 @@ def msip(
     verbose: bool = False,
     use_quantile_length_scale: Optional[float] = None,
     compile_step: bool = True,
-    **msip_kwargs
+    **msip_kwargs,
 ):
     r"""
-        TODO: Document
+    TODO: Document
     """
 
     if n_steps < 0:
@@ -87,17 +92,15 @@ def msip(
         _get_msip_wts = torch.compile(_get_msip_wts)
         est_v = torch.compile(est_v)
 
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds
-    )
+    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
 
     if keep_all:
         trajectories = torch.empty(
-            (n_steps+1, *particles.shape), device=device, dtype=particles.dtype
+            (n_steps + 1, *particles.shape), device=device, dtype=particles.dtype
         )
         trajectories[0].copy_(particles)
         traj_wts = torch.empty(
-            (n_steps+1, particles.shape[0]), device=device, dtype=particles.dtype
+            (n_steps + 1, particles.shape[0]), device=device, dtype=particles.dtype
         )
     else:
         trajectories = torch.empty(())
@@ -107,20 +110,17 @@ def msip(
     particle_wts: BatchType
     for idx in tqdm(range(n_steps + 1), disable=not verbose):
         if use_quantile_length_scale is not None:
-            kernel_length_scale = quantile_distance(particles, use_quantile_length_scale)
+            kernel_length_scale = quantile_distance(
+                particles, use_quantile_length_scale
+            )
 
         kernel_matrix = get_kernel_matrix(particles, kernel_length_scale)
-        kernel_matrix[
-            torch.arange(n_particles), torch.arange(n_particles)
-        ] += kernel_diag_infl
+        kernel_matrix[torch.arange(n_particles), torch.arange(n_particles)] += (
+            kernel_diag_infl
+        )
 
-        msip_estimator_out = est_v(
-            particles, kernel_length_scale
-        )
-        particle_wts = _get_msip_wts(
-            particles, msip_estimator_out,
-            kernel_matrix
-        )
+        msip_estimator_out = est_v(particles, kernel_length_scale)
+        particle_wts = _get_msip_wts(particles, msip_estimator_out, kernel_matrix)
 
         if keep_all:
             traj_wts[idx].copy_(particle_wts)
@@ -143,10 +143,10 @@ def msip(
                 if bounds is not None:
                     particles.clamp_(bounds[0], bounds[1])
             if keep_all:
-                trajectories[idx+1].copy_(particles)
+                trajectories[idx + 1].copy_(particles)
 
     if not keep_all:
         trajectories = particles.unsqueeze_(0)
-        traj_wts = particle_wts.unsqueeze_(0) # type: ignore
+        traj_wts = particle_wts.unsqueeze_(0)  # type: ignore
 
     return trajectories.detach(), traj_wts.detach()

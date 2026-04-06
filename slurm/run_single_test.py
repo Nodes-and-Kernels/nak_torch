@@ -7,7 +7,7 @@ import sys
 from numpy.typing import ArrayLike
 import torch
 from torch import Tensor
-from nak_torch.tools.types import BatchLogDensity, BatchType, BatchPtType, GaussianModel, KernelFunction, MatSelfKernelFunction
+from nak_torch.tools.types import BatchLogDensity, BatchType, BatchPtType, GaussianModel, KernelFunction
 from nak_torch.algorithms.msip import estimators, MSIPFredholm, MSIPQuadGradientFree, MSIPQuadGradientInformed
 from nak_torch.tools.kernel import stein_kernel_mat_factory
 import problems

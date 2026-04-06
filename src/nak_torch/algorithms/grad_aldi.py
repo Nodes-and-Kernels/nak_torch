@@ -1,12 +1,15 @@
 import torch
 from typing import Optional
-from jaxtyping import Float
-from torch import Tensor
 from nak_torch.tools.types import BatchGradLogDensity, BatchPtType
 import warnings
 from tqdm import tqdm
 import numpy as np
-from nak_torch.tools.util import batched_grad_log_density_factory, initialize_particles, sym_sqrtm
+from nak_torch.tools.util import (
+    batched_grad_log_density_factory,
+    initialize_particles,
+    sym_sqrtm,
+)
+
 
 def grad_aldi_step(
     particles: BatchPtType,
@@ -49,7 +52,7 @@ def grad_aldi(
     grad_log_density: Optional[BatchGradLogDensity] = None,
     verbose: bool = False,
     compile_step: bool = True,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
         warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
@@ -59,8 +62,12 @@ def grad_aldi(
     if seed is not None:
         rng.manual_seed(seed)
 
-    grad_log_p = batched_grad_log_density_factory(log_density, is_log_density_batched, grad_log_density)
-    particles = initialize_particles(n_particles, dim, init_particles, device, bounds, rng)
+    grad_log_p = batched_grad_log_density_factory(
+        log_density, is_log_density_batched, grad_log_density
+    )
+    particles = initialize_particles(
+        n_particles, dim, init_particles, device, bounds, rng
+    )
 
     if keep_all:
         trajectories = torch.empty(
@@ -78,7 +85,9 @@ def grad_aldi(
     for idx in tqdm(range(n_steps), disable=not verbose):
         grad_log_dens_eval = grad_log_p(particles)
         with torch.no_grad():
-            particles_diff, particles_noise = g_aldi_step(particles, grad_log_dens_eval, rng)
+            particles_diff, particles_noise = g_aldi_step(
+                particles, grad_log_dens_eval, rng
+            )
             particles_diff.mul_(lr)
             particles_noise.mul_(sqrt_lr)
             particles.add_(particles_diff).add_(particles_noise)
