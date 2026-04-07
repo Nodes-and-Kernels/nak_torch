@@ -82,29 +82,34 @@ def msip_gs(
         trajectories = torch.empty(())
         traj_wts = torch.empty(())
 
-    particle_wts: BatchType
+    particle_wts: BatchType = torch.tensor(())
 
+    if use_quantile_length_scale is not None:
+        kernel_length_scale = quantile_distance(particles, use_quantile_length_scale)
+    est_out = est_v(particles, kernel_length_scale)
+
+    # est_out should keep references to est_out_0 and est_out_1
+    est_out_0, est_out_1 = est_out
     for step in tqdm(range(n_steps + 1), disable=not verbose):
-        if use_quantile_length_scale is not None:
-            kernel_length_scale = quantile_distance(
-                particles, use_quantile_length_scale
-            )
-
         for i in range(n_particles):
-            ls_i = (
-                quantile_distance(particles, use_quantile_length_scale)
-                if use_quantile_length_scale is not None
-                else kernel_length_scale
+            if use_quantile_length_scale is not None:
+                kernel_length_scale = quantile_distance(
+                    particles, use_quantile_length_scale
+                )
+
+            km_i = get_kernel_matrix(particles, kernel_length_scale)
+            if kernel_diag_infl > 0:
+                km_i[torch.arange(n_particles), torch.arange(n_particles)] += (
+                    kernel_diag_infl
+                )
+
+            est_out_i_0, est_out_i_1 = est_v(
+                particles[i].unsqueeze(0), kernel_length_scale
             )
+            est_out_0[i].copy_(est_out_i_0.squeeze())
+            est_out_1[i].copy_(est_out_i_1.squeeze())
 
-            km_i = get_kernel_matrix(particles, ls_i)
-            km_i[torch.arange(n_particles), torch.arange(n_particles)] += (
-                kernel_diag_infl
-            )
-
-            est_out_i = est_v(particles, ls_i)
-
-            particle_wts = _get_msip_wts(particles, est_out_i, km_i)
+            particle_wts = _get_msip_wts(particles, est_out, km_i)
 
             if keep_all and i == n_particles - 1:
                 traj_wts[step].copy_(particle_wts)
@@ -117,7 +122,7 @@ def msip_gs(
             else:
                 km_inv_i = torch.linalg.pinv(km_i)
 
-            target_i = _msip_map(est_out_i, particles, km_inv_i, output_idx=i)
+            target_i = _msip_map(est_out, particles, km_inv_i, output_idx=i)
 
             with torch.no_grad():
                 particles[i] = (1.0 - lr) * particles[i] + lr * target_i
