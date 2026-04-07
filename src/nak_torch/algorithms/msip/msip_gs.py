@@ -7,7 +7,7 @@ import torch
 
 from nak_torch.tools.kernel import default_kernel_matrix
 from nak_torch.tools.util import initialize_particles, get_keywords, quantile_distance
-from .msip_map import MSIPEstimatorOutput, msip_map, get_msip_wts
+from .msip_map import msip_map, get_msip_wts
 from .estimators import MSIPEstimator, MSIPFredholm
 
 from nak_torch.tools.types import (
