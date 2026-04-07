@@ -19,8 +19,9 @@ from nak_torch.tools.util import batched_grad_log_density_factory, initialize_pa
 def create_svgd_step(
     kernel_elem: KernelFunction, grad_log_p: BatchGradLogDensity, *kernel_elem_args
 ) -> Callable[[BatchPtType], BatchPtType]:
+    which_argnum = 1
     kernel_grad_val = kernel_grad_and_value_factory(
-        kernel_elem, which_argnum=1, *kernel_elem_args
+        kernel_elem, which_argnum, *kernel_elem_args
     )
 
     def svgd_step_dir(points: BatchPtType):
