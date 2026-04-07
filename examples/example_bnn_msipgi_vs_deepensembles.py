@@ -372,7 +372,7 @@ if __name__ == "__main__":
 
 
 
-    def spherical_quad(batch_size: int, dimension: int = 101, N_spherical: int = 101, N_radial: int = 1):
+    def spherical_quad(batch_size: int, dimension: int = 101, N_spherical: int = 5, N_radial: int = 3):
         pts, wts = spherical_MC_radial_Laguerre(batch_size, N_spherical, dimension, N_radial)
         return pts.double(), wts.double()
 
@@ -407,7 +407,7 @@ if __name__ == "__main__":
         kernel_length_scale=SIGMA, is_log_density_batched=True,
         kernel_diag_infl=1e-6, bounds=(-100., 100.),
         gradient_decay=0.5, keep_all=True,
-        compile_step=False, verbose=True,
+        compile_step=True, verbose=True,
     )
 
     # Run SVGD
