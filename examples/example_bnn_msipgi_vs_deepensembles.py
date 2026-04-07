@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from viz_tools import animate_trajectories_box
-from nak_torch.algorithms import grad_aldi, eks, gradfree_aldi, cbs, msip,msip_gs, kfrflow, deepensembles
+from nak_torch.algorithms import grad_aldi, eks, gradfree_aldi, cbs, msip, msip_gs, kfrflow, deepensembles
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientInformed, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from torch import nn
@@ -30,7 +30,7 @@ class bnn(nn.Module):
     ----------
     d_in       : int   input dimension
     hidden_dim : int   width of each hidden layer
-    n_layers   : int   number of hidden layers 
+    n_layers   : int   number of hidden layers
     """
     def __init__(self, d_in: int, hidden_dim: int, n_layers: int = 1):
         super().__init__()
@@ -40,7 +40,7 @@ class bnn(nn.Module):
             layers.append(nn.Linear(in_dim, hidden_dim))
             in_dim = hidden_dim
             layers.append(nn.ReLU())
-            
+
         layers.append(nn.Linear(hidden_dim, 1))
         self.net = nn.Sequential(*layers)
 
@@ -49,7 +49,7 @@ class bnn(nn.Module):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Dataset loading with train-test splitting 
+# Dataset loading with train-test splitting
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_dataset(dataset_name, train_ratio=0.8, seed=0):
@@ -61,8 +61,8 @@ def load_dataset(dataset_name, train_ratio=0.8, seed=0):
     with shapes (N, d) and (N,)
     """
     data  = np.load(f"datasets/{dataset_name}.npz")
-    X = torch.from_numpy(data["X"].T).double()    
-    Y = torch.from_numpy(data["Y"].T).double().squeeze()  
+    X = torch.from_numpy(data["X"].T).double()
+    Y = torch.from_numpy(data["Y"].T).double().squeeze()
 
     N_total = X.shape[0]
     rng     = np.random.RandomState(seed)
@@ -89,7 +89,7 @@ def make_objective(X, Y, model_class='bnn',
     X, Y         : torch.double tensors  (N, d) and (N,)
     model_class  : 'bnn' for now, but we can think about something else
     hidden_dim   : int   hidden width
-    n_layers     : int   depth  
+    n_layers     : int   depth
     beta         : float temperature
     lambda2      : float prior weight
     """
@@ -133,7 +133,7 @@ def make_objective(X, Y, model_class='bnn',
         else:
             raise ValueError(f"theta must be 1D or 2D, got {theta.shape}")
 
-    
+
     objective_function.total_numel = total_numel
     objective_function.model_class = model_class
     objective_function.model       = model
@@ -169,8 +169,8 @@ def _get_ensemble_probs(traj, obj_fn, grid):
 
 
 def _scatter(ax, X, Y):
-    x = X.numpy() 
-    y = Y.numpy() 
+    x = X.numpy()
+    y = Y.numpy()
     ax.scatter(x[y > 0, 0], x[y > 0, 1], c='gold',   s=25, zorder=5)
     ax.scatter(x[y < 0, 0], x[y < 0, 1], c='tomato', s=25, zorder=5)
 
@@ -302,8 +302,8 @@ def plot_diversity_curve(trajectories_dict):
     ax.legend()
     plt.tight_layout()
     plt.show()
-    
- 
+
+
 
 def eval_function_trajectories(obj_fn, trajectories, algo_name):
     T, M, d = trajectories.shape
@@ -311,8 +311,8 @@ def eval_function_trajectories(obj_fn, trajectories, algo_name):
     for t in range(T):
         for m in range(M):
             eval_tensor[t, m] = -obj_fn(trajectories[t, m, :])
-    
-    
+
+
     plt.plot(eval_tensor.detach().numpy().min(1), label=algo_name)
     plt.xlabel("Iteration")
     plt.ylabel("Objective function")
@@ -332,8 +332,8 @@ if __name__ == "__main__":
     # Config
     DATASET      = 'two_bananas'
     MODEL_CLASS  = 'bnn'
-    HIDDEN_DIM   = 25        
-    N_LAYERS     = 1          
+    HIDDEN_DIM   = 25
+    N_LAYERS     = 1
     N_TRAIN      = 0.8        # train-test split ratio
     N_PARTICLES  = 15
     N_STEPS      = 1000
@@ -363,20 +363,20 @@ if __name__ == "__main__":
 
     # Run MSIP
     post_log_dens_grad_val = torch.func.vmap(torch.func.grad_and_value(obj_msip))
-    
+
     def mc_quad_rule(batch_size: int, N_quad: int = 10, dim: int = dimension):
         #dim = dimension
         pts = torch.randn((batch_size, N_quad, dim)).double()
         wts = torch.ones((batch_size, N_quad)).div_(N_quad).double()
         return pts, wts
-    
-    
-    
-    def spherical_quad(batch_size: int, dimension: int = 101, N_spherical: int = 101, N_radial: int = 1):
+
+
+
+    def spherical_quad(batch_size: int, dimension: int = 101, N_spherical: int = 5, N_radial: int = 3):
         pts, wts = spherical_MC_radial_Laguerre(batch_size, N_spherical, dimension, N_radial)
         return pts.double(), wts.double()
-    
-    
+
+
     # %%
     # kernel_length_scale = 1e-3
     # gradient_decay = 1.
@@ -385,7 +385,7 @@ if __name__ == "__main__":
         post_log_dens_grad_val, spherical_quad,
         0.5
     )
-    
+
     # trajectories_msip_qg, traj_wts_msip_qg = msip(
     #     msip_quadgrad, n_particles, n_steps, dim=2,
     #     lr=10., init_particles=init_particles[:n_particles],
@@ -407,23 +407,23 @@ if __name__ == "__main__":
         kernel_length_scale=SIGMA, is_log_density_batched=True,
         kernel_diag_infl=1e-6, bounds=(-100., 100.),
         gradient_decay=0.5, keep_all=True,
-        compile_step=False, verbose=True,
+        compile_step=True, verbose=True,
     )
 
     # Run SVGD
-    
-    
+
+
     trajectories_de = deepensembles(
-        obj_de, N_PARTICLES, N_STEPS, dimension, 
-        LR_SVGD, seed = None, device = None, init_particles= init_particles, 
-        kernel_length_scale = SIGMA, keep_all = True, 
+        obj_de, N_PARTICLES, N_STEPS, dimension,
+        LR_SVGD, seed = None, device = None, init_particles= init_particles,
+        kernel_length_scale = SIGMA, keep_all = True,
         is_log_density_batched =True, verbose = True)
 
 
     trajectories_dict  = {"MSIP": trajectories_msip_qg, "DE": trajectories_de}
     objective_fns_dict = {"MSIP": obj_msip,          "DE": obj_de}
 
-    # Optimization diagnostics 
+    # Optimization diagnostics
     eval_function_trajectories(obj_msip, trajectories_msip_qg, "MSIP")
     eval_function_trajectories(obj_de, trajectories_de, "DE")
 

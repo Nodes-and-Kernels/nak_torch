@@ -96,6 +96,7 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         log_dens_grads, log_dens_evals = self.log_dens_grad_val(
             particle_quad_pts.reshape(-1, particles.shape[1])
         )
+
         log_dens_grads = log_dens_grads.reshape_as(particle_quad_pts)
         log_dens_evals = log_dens_evals.reshape(particle_quad_pts.shape[:-1])
 

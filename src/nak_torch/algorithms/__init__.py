@@ -8,7 +8,7 @@
 # 05/12/2025
 
 from .eks import eks
-from .msip import msip, msip_ni, msip_greedy, msip_geom_greedy, msip_adapt
+from .msip import msip, msip_gs, msip_ni, msip_greedy, msip_geom_greedy, msip_adapt
 from .svgd import svgd
 from .deepensembles import deepensembles
 from .grad_aldi import grad_aldi
@@ -19,6 +19,7 @@ from .kfrflow import kfrflow
 
 __all__ = [
     "msip",
+    "msip_gs",
     "msip_ni",
     "msip_greedy",
     "msip_geom_greedy",
