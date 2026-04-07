@@ -66,8 +66,7 @@ class GaussianModel:
             self.forward_model = forward_model
         else:
             self.forward_model = torch.vmap(forward_model)
-        if prior_mean != 0.0:
-            raise ValueError("Only support zero prior mean for now")
+        self.prior_mean = prior_mean
         self.likelihood_precision = likelihood_precision
         self.prior_precision = prior_precision
         self.true_obs = true_obs
@@ -84,7 +83,9 @@ def gaussian_log_dens_factory(
             model.likelihood_precision
         )
         like_term.mul_(model.likelihood_precision)
-        prior_diff = pts - model.prior_mean
+        prior_diff = pts
+        if model.prior_mean != 0.0:
+            prior_diff -= model.prior_mean
         prior_term = torch.square(torch.linalg.norm(prior_diff, dim=-1)).mul_(
             model.prior_precision
         )
