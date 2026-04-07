@@ -10,8 +10,7 @@
 
 from .twodims.mixture_of_gaussians import mixture_of_gaussians
 from .twodims.himmelblau import himmelblau
-from .twodims.banana import banana
-from .twodims.ring import ring
+from . import banana
 from .nns.shallow_nn_twodims import loss_nn_dataset
 from .kde.gaussian_kde import gaussian_kde
 from .aristoff_bangerth import build_aristoff_bangerth
@@ -19,10 +18,9 @@ from .aristoff_bangerth import build_aristoff_bangerth
 __all__ = [
     "mixture_of_gaussians",
     "banana",
-    "ring",
     "himmelblau",
     "loss_nn_dataset",
-    "plot_2D_classification_with_dataset_from_theta",
+    # "plot_2D_classification_with_dataset_from_theta",
     "gaussian_kde",
     "build_aristoff_bangerth"
 ]
