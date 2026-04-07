@@ -18,11 +18,13 @@ from nak_torch.tools.types import KernelFunction, BatchGradLogDensity, BatchPtTy
 from nak_torch.tools.util import batched_grad_log_density_factory, initialize_particles
 
 
-def create_deepensembles_step(grad_log_p: BatchGradLogDensity) -> Callable[[BatchPtType], BatchPtType]:
+def create_deepensembles_step(
+    grad_log_p: BatchGradLogDensity,
+) -> Callable[[BatchPtType], BatchPtType]:
     def deepensembles_step_dir(points: BatchPtType):
         log_p_grad_ev = grad_log_p(points)
 
-        return  log_p_grad_ev
+        return log_p_grad_ev
 
     return deepensembles_step_dir
 
@@ -43,7 +45,7 @@ def deepensembles(
     is_log_density_batched: bool = False,
     grad_log_density: Optional[BatchGradLogDensity] = None,
     verbose: bool = False,
-    **unused_kwargs
+    **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
         warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
@@ -51,9 +53,7 @@ def deepensembles(
     if seed is not None:
         torch.manual_seed(seed)
 
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds
-    )
+    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
 
     if keep_all:
         trajectories = torch.empty(
@@ -63,18 +63,20 @@ def deepensembles(
     else:
         trajectories = torch.empty(())
 
-    grad_log_p = batched_grad_log_density_factory(log_density, is_log_density_batched, grad_log_density)
+    grad_log_p = batched_grad_log_density_factory(
+        log_density, is_log_density_batched, grad_log_density
+    )
     step_fcn = create_deepensembles_step(grad_log_p)
-    
+
     trajectories[0].copy_(particles)
-    
-    for idx in tqdm(range(n_steps-1), disable=not verbose):
+
+    for idx in tqdm(range(n_steps - 1), disable=not verbose):
         particles_diff = step_fcn(particles)
         with torch.no_grad():
             particles = particles + lr * particles_diff
             if bounds is not None:
                 particles.clamp_(bounds[0], bounds[1])
         if keep_all:
-            trajectories[idx+1].copy_(particles)
+            trajectories[idx + 1].copy_(particles)
 
     return trajectories.detach() if keep_all else particles.unsqueeze_(0)

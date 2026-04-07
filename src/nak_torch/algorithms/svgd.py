@@ -85,6 +85,6 @@ def svgd(
             if bounds is not None:
                 particles.clamp_(bounds[0], bounds[1])
         if keep_all:
-            trajectories[idx+1].copy_(particles)
+            trajectories[idx + 1].copy_(particles)
 
     return trajectories.detach() if keep_all else particles.unsqueeze_(0)
