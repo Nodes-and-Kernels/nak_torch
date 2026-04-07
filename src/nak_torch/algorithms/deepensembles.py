@@ -12,8 +12,6 @@ import torch
 from typing import Optional, Callable
 from tqdm import tqdm
 from nak_torch.tools.kernel import sqexp_kernel_elem
-from jaxtyping import Float
-from torch import Tensor
 from nak_torch.tools.types import KernelFunction, BatchGradLogDensity, BatchPtType
 from nak_torch.tools.util import batched_grad_log_density_factory, initialize_particles
 

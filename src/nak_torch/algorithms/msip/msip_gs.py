@@ -109,7 +109,6 @@ def msip_gs(
         trajectories = torch.empty(())
         traj_wts = torch.empty(())
 
-    msip_estimator_out: MSIPEstimatorOutput
     particle_wts: BatchType
 
     for step in tqdm(range(n_steps + 1), disable=not verbose):
