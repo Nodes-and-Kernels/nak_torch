@@ -1,7 +1,6 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from viz_tools import animate_trajectories_box
 from nak_torch.algorithms import grad_aldi, eks, gradfree_aldi, cbs, msip, msip_gs, kfrflow, deepensembles
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientInformed, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
