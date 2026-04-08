@@ -26,6 +26,7 @@ build-backend = "uv_build"
 dev = [
     "pandas>=3.0.2",
     "pyro-ppl>=1.9.1",
+    "matplotlib>=3.10.8",
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
     "ruff>=0.15.8",
