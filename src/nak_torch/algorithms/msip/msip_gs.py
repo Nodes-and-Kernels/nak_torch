@@ -91,12 +91,12 @@ def msip_gs(
     # est_out should keep references to est_out_0 and est_out_1
     est_out_0, est_out_1 = est_out
     for step in tqdm(range(n_steps + 1), disable=not verbose):
-        for i in range(n_particles):
-            if use_quantile_length_scale is not None:
-                kernel_length_scale = quantile_distance(
-                    particles, use_quantile_length_scale
-                )
+        if use_quantile_length_scale is not None:
+            kernel_length_scale = quantile_distance(
+                particles, use_quantile_length_scale
+            )
 
+        for i in range(n_particles):
             km_i = get_kernel_matrix(particles, kernel_length_scale)
             if kernel_diag_infl > 0:
                 km_i[torch.arange(n_particles), torch.arange(n_particles)] += (
@@ -125,7 +125,7 @@ def msip_gs(
             target_i = _msip_map(est_out, particles, km_inv_i, output_idx=i)
 
             with torch.no_grad():
-                particles[i] = (1.0 - lr) * particles[i] + lr * target_i
+                particles[i].mul_(1.0 - lr).add_(target_i.mul_(lr))
                 if bounds is not None:
                     particles[i].clamp_(bounds[0], bounds[1])
 
