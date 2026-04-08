@@ -27,7 +27,9 @@ def build_gradfree_aldi_step(
         N_batch, dim = particles.shape
         particle_mean = particles.mean(0, True)
         forecast_obs_mean = forecast_observations.mean(0, True)
-        prior_err = particles - prior_mean
+        prior_err = particles
+        if prior_mean != 0.0:
+            prior_err -= prior_mean
         obs_error = forecast_observations - true_obs
         obs_deviation = forecast_observations - forecast_obs_mean
         forecast_deviation = particles - particle_mean

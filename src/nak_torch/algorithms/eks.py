@@ -18,6 +18,7 @@ def build_eks_step(
     likelihood_precision = torch.as_tensor(
         eks_model.likelihood_precision, device=device
     )
+    prior_mean = torch.as_tensor(eks_model.prior_mean, device=device)
     prior_precision = torch.as_tensor(eks_model.prior_precision, device=device)
     true_obs = torch.as_tensor(eks_model.true_obs, device=device)
     if isinstance(true_obs, Tensor):
@@ -34,6 +35,8 @@ def build_eks_step(
         obs_diff = forecast_observations - true_obs
         forecast_diff = forecast_observations - forecast_obs_mean
         prior_ens_diff = particles - particle_mean
+        if prior_mean != 0.0:
+            prior_ens_diff -= prior_mean
         cov_forecast = (prior_ens_diff.T @ prior_ens_diff) / N_batch
 
         if isinstance(likelihood_precision, float) or likelihood_precision.numel() == 1:

@@ -62,20 +62,21 @@ class GaussianModel:
         prior_mean: float | Float[Tensor, " dim"] = 0.0,
         is_vectorized: bool = False,
     ):
-        if is_vectorized:
-            self.forward_model = forward_model
-        else:
-            self.forward_model = torch.vmap(forward_model)
-        if prior_mean != 0.0:
-            raise ValueError("Only support zero prior mean for now")
+        if not is_vectorized:
+            forward_model = torch.vmap(forward_model)
+        self.forward_model = forward_model
+        self.prior_mean = prior_mean
         self.likelihood_precision = likelihood_precision
         self.prior_precision = prior_precision
         self.true_obs = true_obs
         self.prior_mean = prior_mean
 
+    def to_log_dens(self, use_compiled: bool = True):
+        return gaussian_log_dens_factory(self, use_compiled)
+
 
 def gaussian_log_dens_factory(
-    model: GaussianModel, compile: bool = True
+    model: GaussianModel, use_compiled: bool = True
 ) -> BatchLogDensity:
     def log_dens(pts: BatchPtType) -> BatchType:
         model_eval = model.forward_model(pts)
@@ -84,10 +85,12 @@ def gaussian_log_dens_factory(
             model.likelihood_precision
         )
         like_term.mul_(model.likelihood_precision)
-        prior_diff = pts - model.prior_mean
+        prior_diff = pts
+        if model.prior_mean != 0.0:
+            prior_diff -= model.prior_mean
         prior_term = torch.square(torch.linalg.norm(prior_diff, dim=-1)).mul_(
             model.prior_precision
         )
         return -0.5 * (prior_term + like_term)
 
-    return torch.compile(log_dens) if compile else log_dens
+    return torch.compile(log_dens) if use_compiled else log_dens
