@@ -67,7 +67,7 @@ def svgd(
 
     if keep_all:
         trajectories = torch.empty(
-            (n_steps, *particles.shape), device=device, dtype=particles.dtype
+            (n_steps + 1, *particles.shape), device=device, dtype=particles.dtype
         )
         trajectories[0].copy_(particles)
     else:
@@ -85,6 +85,6 @@ def svgd(
             if bounds is not None:
                 particles.clamp_(bounds[0], bounds[1])
         if keep_all:
-            trajectories[idx].copy_(particles)
+            trajectories[idx + 1].copy_(particles)
 
     return trajectories.detach() if keep_all else particles.unsqueeze_(0)
