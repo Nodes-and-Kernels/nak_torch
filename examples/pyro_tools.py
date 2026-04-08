@@ -59,6 +59,6 @@ class PyroModel:
 
     def __call__(self, data):
         theta = pyro.sample("theta", dist.Normal(self.prior_mean, self.prior_std))
-        mean_out = self.forward_model(theta)
+        mean_out = self.forward_model(theta.unsqueeze(0))
         with pyro.plate("data", len(data)):
             return pyro.sample("obs", dist.Normal(mean_out, self.like_std), obs=data)

@@ -11,11 +11,15 @@
 # Author: NAK torch authors, 2026
 #
 
+from functools import partial
+
 import torch
 from torch import Tensor
 from typing import Optional
+from nak_torch import GaussianModel
 if __name__ == '__main__':
     torch.set_default_dtype(torch.float64)
+
 theta_true = torch.tensor([
     1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
     1.0, 0.1, 0.1, 1.0, 1.0, 1.0, 1.0, 1.0,
@@ -291,8 +295,10 @@ def forward_solver(
     :rtype: Array
     """
     # Initialize matrix A for FEM linear solve, AU = b
-    assert theta.ndim == 2
-    assert theta.shape[1] == 64
+    if theta.ndim != 2:
+        raise ValueError(f"Expected theta.ndim = 2, got {theta.ndim}")
+    if theta.shape[1] != 64:
+        raise ValueError(f"Expected theta.shape[1] = 64, got {theta.shape[1]}")
     N_batch = theta.shape[0]
     Np1 = N + 1
     num_patch = 8
@@ -353,6 +359,11 @@ def log_prior(log_theta: Tensor, sig_pr_sq: float):
     norm_sq = log_theta.square().sum(-1)
     return -norm_sq / (2 * sig_pr_sq)
 
+def build_forward_solver(N: int, H_obs: Tensor, *solve_args):
+    def prefill_forward_solver(log_theta: Tensor):
+        return forward_solver(log_theta.exp(), N, H_obs, *solve_args) @ H_obs.T
+    return prefill_forward_solver
+
 def build_aristoff_bangerth(
         N: int = 32,
         N_obs: int = 13,
@@ -375,13 +386,11 @@ def build_aristoff_bangerth(
     sig_lik_sq = sig_lik**2
     sig_pr_sq = sig_pr**2
     solve_args = build_forward_solver_args(N, N_obs, dtype=dtype, device=device)
-    def log_post(log_theta: Tensor):
-        torch._assert(log_theta.ndim == 2, "Expected log theta to have batch dim")
-        torch._assert(log_theta.device == device, "Unexpected device for log theta")
-        log_lik = log_likelihood(log_theta, N, z_hat, sig_lik_sq, *solve_args)
-        log_pr = log_prior(log_theta, sig_pr_sq)
-        return log_lik + log_pr
-    return torch.compile(log_post) if use_compiled else log_post
+    forward_solver_func = build_forward_solver(N, *solve_args)
+    if use_compiled:
+        forward_solver_func = torch.compile(forward_solver_func)
+    model = GaussianModel(forward_solver_func, 1/sig_lik_sq, 1/sig_pr_sq, z_hat, is_vectorized=True)
+    return model
 
 
 def verify_against_stored_tests(path, z_hat, dtype=torch.float64):

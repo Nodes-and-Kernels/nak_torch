@@ -9,22 +9,30 @@ import matplotlib.pyplot as plt
 from nak_torch.tools.kernel import sqexp_kernel_matrix
 from tqdm import tqdm
 import pandas as pd
+import pyro_tools
+from pyro.infer import mcmc
 
 if torch.cuda.is_available():
     torch.set_default_device("cuda")
 else:
     torch.set_default_device("cpu")
+torch.set_default_dtype(torch.float64)
 
 # %%
-log_p = build_aristoff_bangerth(use_compiled=True, dtype=torch.float64)
-log_th = torch.randn(500, 64, requires_grad=True, dtype=torch.float64)
+use_compiled = True
+model = build_aristoff_bangerth(use_compiled=use_compiled, dtype=torch.float64)
+log_p = model.to_log_dens(use_compiled=use_compiled)
+log_th = torch.randn(500, 64, dtype=torch.float64)
 test_out = log_p(log_th)
-test_eval = torch.autograd.grad(test_out.sum(), log_th)
+
+# %%
+grad_log_p = torch.func.grad(lambda t: log_p(t).sum())
+test_eval = grad_log_p(log_th)
 
 # %%
 del log_th
 del test_out
-del test_eval
+# del test_eval
 gc.collect()
 
 # %%
@@ -59,6 +67,15 @@ trajectories_msip = msip(
     log_p,
     **msip_args
 )
+
+# %%
+n_steps_hmc = 1000
+pyro_model = pyro_tools.PyroModel(model, dim)
+hmc_kernel = mcmc.NUTS(pyro_model)
+mcmc_setup = mcmc.MCMC(hmc_kernel, num_samples=n_steps_hmc, warmup_steps=100)
+mcmc_setup.run(model.true_obs)
+
+hmc_samples = mcmc_setup.get_samples()["theta"]
 
 # %%
 trajectories_svgd = svgd(
