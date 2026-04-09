@@ -16,7 +16,7 @@ from nak_torch.algorithms.msip import (
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 
 from pyro.infer import mcmc
-import pyro_tools
+from nak_torch.tools import pyro_tools
 
 if torch.cuda.is_available():
     torch.set_default_device("cuda")

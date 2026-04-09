@@ -3,6 +3,8 @@
 # 05/12/2025
 
 
+import importlib.util
+
 from . import kernel, types, quadrature, adaptive_step
 from .average import recursive_weighted_average_alpha_v
 from .torchify import differentiable_density_factory
@@ -17,3 +19,7 @@ __all__ = [
     "quadrature",
     "adaptive_step",
 ]
+if importlib.util.find_spec("pyro") is not None:
+    from . import pyro_tools  # noqa: F401
+
+    __all__.append("pyro_tools")
