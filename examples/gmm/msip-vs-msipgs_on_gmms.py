@@ -17,7 +17,7 @@ def post_log_dens(pt):
         torch.tensor([-4.0, 5.0]),
         torch.tensor([7.0,  0.0]),
     ]
-    precisions = [5.0, 5.0, 5.0]
+    precisions = [5.0, 5.0, 2.0]
     weights    = [1/3, 1/3, 1/3]
     log_probs = []
     for mean, prec, w in zip(means, precisions, weights):
@@ -26,9 +26,9 @@ def post_log_dens(pt):
         log_probs.append(lp)
     return torch.stack(log_probs, dim=-1).logsumexp(dim=-1).squeeze()
 
-n_steps, n_particles = 500, 10
-lr_msip = 200e-3
-kernel_length_scale = 0.8
+n_steps, n_particles = 5000, 20
+lr_msip = 5e-3
+kernel_length_scale = 0.9
 kernel_diag_infl = 1e-8
 bounds = (-100., 100.)
 
@@ -131,6 +131,36 @@ axes[1].set_aspect(1.0)
 plt.tight_layout()
 plt.show()
 
+
+Ngrid = 100
+xgrid = torch.linspace(-10, 15, Ngrid)
+ygrid = torch.linspace(-10, 15, Ngrid)
+X, Y = torch.meshgrid(xgrid, ygrid, indexing="ij")
+grid_pts = torch.stack((X.flatten(), Y.flatten()), 1)
+Z = post_log_dens(grid_pts).reshape(Ngrid, Ngrid)
+
+pts_msip    = trajectories_msip[-1]
+wts_msip    = traj_wts_msip[-1];    wts_msip    = wts_msip    / wts_msip.sum()
+pts_msip_gs = trajectories_msip_gs[-1]
+wts_msip_gs = traj_wts_msip_gs[-1]; wts_msip_gs = wts_msip_gs / wts_msip_gs.sum()
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+axes[0].contour(X, Y, Z, levels=20)
+axes[0].scatter(pts_msip[:, 0],    pts_msip[:, 1],    c=wts_msip,    alpha=0.5)
+axes[0].set_title("MSIP")
+axes[0].set_xlim(-10, 15)
+axes[0].set_ylim(-10, 15)
+axes[0].set_aspect(1.0)
+axes[1].contour(X, Y, Z, levels=20)
+axes[1].scatter(pts_msip_gs[:, 0], pts_msip_gs[:, 1], c=wts_msip_gs, alpha=0.5)
+axes[1].set_title("MSIP-GS")
+axes[1].set_xlim(-10, 15)
+axes[1].set_ylim(-10, 15)
+axes[1].set_aspect(1.0)
+plt.tight_layout()
+plt.show()
+
+
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.plot(steps_recorded, mmd_msip,    label="MSIP")
 ax.plot(steps_recorded, mmd_msip_gs, label="MSIP-GS")
@@ -139,3 +169,7 @@ ax.set_ylabel("MMD to target GMM")
 ax.legend()
 plt.tight_layout()
 plt.show()
+
+
+
+
