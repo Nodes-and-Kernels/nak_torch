@@ -135,13 +135,13 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
     
         
         
-        # Calculate the smoothed covariances (K,D,D)
+        # Calculate the smoothed covariances and related quantities
         eyes = torch.eye(D, device = particles.device, dtype = particles.dtype) # (K, D, D)
         smoothed_covs = self.covariances + sigma_sq * eyes.unsqueeze(0) # (K, D, D)
+        #__ Calculate the Cholesky decompositions of all the smoothed covs
         L = torch.linalg.cholesky(smoothed_covs) # (K, D, D)
-        
-    
-        # Log-normalisation per component: -0.5*(D*log(2pi) + log|C_k|)
+        #__ Calculate the log-normalisation per component:
+        #__  -0.5*(D*log(2pi) + log|C_k|) = -0.5*(D*log(2pi) + 2\sum log|L_k|_ii)
         log_det = 2.0 * L.diagonal(dim1=-2, dim2=-1).log().sum(-1)      # (K,)
         log_norm = -0.5 * (D * torch.log(torch.tensor(2.0 * torch.pi)) + log_det)
         
@@ -150,20 +150,28 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
         deltas = particles.unsqueeze(1) - self.means.unsqueeze(0)                # (N, K, D)
         L_exp = L.unsqueeze(0).expand(N, -1, -1, -1)                          # (N, K, D, D)
         diff_col = deltas.unsqueeze(-1)                                          # (N, K, D, 1)
+        #__ Calculate the differences rescales by the smoothed covariances
         z = torch.linalg.solve_triangular(L_exp, diff_col, upper=False)       # (N, K, D, 1)
-        sq_mahal_distances = z.squeeze(-1).pow(2).sum(-1)                                   # (N, K)
+        sq_mahal_distances = z.squeeze(-1).pow(2).sum(-1)                      # (N, K)
     
         # Calculating log v_0
         log_w = self.weights.log().unsqueeze(0)                                # (1, K)
+        #__ Calculate the evaluations of each Gaussian for all the particles 
         log_g = log_norm.unsqueeze(0) - 0.5 * sq_mahal_distances           # (N, K)
+        #__ Calculate the evaluation of log_v0, 
+        #__ without the normalizing constant of the Gaussian kernel
         log_v0 = torch.logsumexp(log_w + log_g, dim=1)                     # (N,)
     
         # Calculating grad_log_v0
-        resp = torch.softmax(log_w + log_g, dim=1)                         # (N, K)
+        
+        #__ Computing r_{n,k} = (w_k g_k(x_n)) / sum_j (w_j g_j(x_n))
+        #__ in a stable way: r_{n,k} = softmax(log w_k + log g_k(x_n))
+        r = torch.softmax(log_w + log_g, dim=1)                         # (N, K)
+        
         LT_inv_neg_z = torch.linalg.solve_triangular(
             L_exp.mT, z.neg(), upper=True
         )                                                                      # (N, K, D, 1)
         score_components = LT_inv_neg_z.squeeze(-1)                           # (N, K, D)
-        grad_log_v0 = (resp.unsqueeze(-1) * score_components).sum(dim=1)      # (N, D)
+        grad_log_v0 = (r.unsqueeze(-1) * score_components).sum(dim=1)      # (N, D)
     
         return log_v0, sigma_sq*grad_log_v0
