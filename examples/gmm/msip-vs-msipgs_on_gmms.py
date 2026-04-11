@@ -158,6 +158,7 @@ axes[1].set_xlim(-10, 15)
 axes[1].set_ylim(-10, 15)
 axes[1].set_aspect(1.0)
 plt.tight_layout()
+plt.savefig('2dplot_GMM_MSIP-MSIPGS.pdf')
 plt.show()
 
 
@@ -168,6 +169,7 @@ ax.set_xlabel("Step")
 ax.set_ylabel("MMD to target GMM")
 ax.legend()
 plt.tight_layout()
+plt.savefig('MMD_GMM_MSIP-MSIPGS.pdf')
 plt.show()
 
 
