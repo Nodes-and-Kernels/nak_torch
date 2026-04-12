@@ -19,7 +19,9 @@ dependencies = [
 nak-torch = "nak_torch:main"
 
 [project.optional-dependencies]
-pyro = [
+examples = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.8",
     "pyro-ppl>=1.9.1",
 ]
 
