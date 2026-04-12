@@ -1,5 +1,5 @@
 from . import algorithms, tools
-from .tools import GaussianModel
+from .tools import GaussianModel, LogisticRegressionModel
 
 
-__all__ = ["algorithms", "tools", "GaussianModel"]
+__all__ = ["algorithms", "tools", "GaussianModel", "LogisticRegressionModel"]
