@@ -103,8 +103,11 @@ class LogisticRegressionModel(AbstractModel):
 
     dim: int
     prior_mean: float | Float[Tensor, " dim"] | None
-    data: Float | Float[Tensor, "dim labels"]
-    labels: Float | Float[Tensor, " labels"]
+    train_data: Float | Float[Tensor, "dim labels"]
+    test_data: Optional[Float | Float[Tensor, "dim labels"]]
+    train_labels: Float | Float[Tensor, " labels"]
+    test_labels: Optional[Float | Float[Tensor, " labels"]]
+    sum_bernoulli: bool
     hyperprior: torch.distributions.Gamma
 
     def __init__(
@@ -116,6 +119,8 @@ class LogisticRegressionModel(AbstractModel):
         device=None,
         hyperprior_a=1.0,
         hyperprior_b=0.1,
+        train_proportion=1.0,
+        sum_bernoulli=True,
     ):
         data: torch.Tensor
         dtype = torch.get_default_dtype() if dtype is None else dtype
@@ -136,13 +141,24 @@ class LogisticRegressionModel(AbstractModel):
             raise ValueError(
                 f"Expected data_or_fname to be str or tensor, got {type(data_or_fname)}"
             )
-        if labels is None or labels.shape[0] != data.shape[0]:
+        N_pts = data.shape[0]
+        if labels is None or labels.shape[0] != N_pts:
             raise ValueError("Unexpected type or size of argument `labels`.")
-        constant = as_tensor(torch.ones(data.shape[0]))
-        self.data = torch.column_stack((constant, data)).T
-        self.dim = self.data.shape[0] + 1
-        self.labels = labels
+        constant = as_tensor(torch.ones(N_pts))
+        data = torch.column_stack((constant, data)).T
+        if train_proportion >= 1.0:
+            self.train_data, self.test_data = data, None
+            self.train_labels, self.test_labels = labels, None
+        else:
+            ridx = torch.randperm(N_pts)
+            num_train = int(np.floor(N_pts * train_proportion))
+            self.train_data = data[:, ridx[:num_train]]
+            self.train_labels = labels[ridx[:num_train]]
+            self.test_data = data[:, ridx[num_train:]]
+            self.test_labels = labels[ridx[num_train:]]
+        self.dim = data.shape[0] + 1
         self.prior_mean = prior_mean
+        self.sum_bernoulli = sum_bernoulli
         self.hyperprior = torch.distributions.Gamma(
             as_tensor(hyperprior_a), as_tensor(hyperprior_b)
         )
@@ -151,7 +167,7 @@ class LogisticRegressionModel(AbstractModel):
         def log_hyperprior(t):
             return self.hyperprior.log_prob(t)
 
-        def log_dens(params: BatchPtType) -> BatchType:
+        def log_dens(params: BatchPtType, use_train: bool = True) -> BatchType:
             is_batch = params.ndim == 2
             if not is_batch:
                 params = params.unsqueeze(0)
@@ -166,12 +182,20 @@ class LogisticRegressionModel(AbstractModel):
             alpha = torch.exp(params[:, -1])
             hyperprior_term = log_hyperprior(alpha)
             prior_term = -torch.sum(torch.square_(prior_diff), dim=-1).mul_(2 * alpha)
-            logits = coeffs @ self.data
-            likelihood = bernoulli_loglikelihood_logit_v(logits, self.labels)
-            # print("alpha:",alpha,"\n\n")
-            # print("likely:",likelihood,"\n\n")
-            # print("prior:",prior_term,"\n\n")
-            # print("hyperprior:",hyperprior_term,"\n\n")
+            data: Float[Tensor, "dim-1 N_pts"]
+            labels: Float[Tensor, " N_pts"]
+            if use_train:
+                data = self.train_data
+                labels = self.train_data
+            elif self.test_data is not None and self.test_labels is not None:
+                data = self.test_data
+                labels = self.test_labels
+            else:
+                raise ValueError("Expected test_data and test_labels to be initialized")
+            logits = coeffs @ data
+            likelihood = bernoulli_loglikelihood_logit_v(logits, labels)
+            if not self.sum_bernoulli:
+                likelihood /= labels.numel()
             post = likelihood + prior_term + hyperprior_term
             return post if is_batch else post[0]
 
