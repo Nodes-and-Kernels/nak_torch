@@ -9,7 +9,7 @@ from .estimators import (
     MSIPQuadGradientFree,
     MSIPFredholm,
     MSIPQuadGradientInformed,
-    MSIPGMMGaussianKernel
+    MSIPGMMGaussianKernel,
 )
 
 __all__ = [
@@ -23,5 +23,5 @@ __all__ = [
     "MSIPQuadGradientFree",
     "MSIPFredholm",
     "MSIPQuadGradientInformed",
-    "MSIPGMMGaussianKernel"
+    "MSIPGMMGaussianKernel",
 ]
