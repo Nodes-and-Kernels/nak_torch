@@ -16,15 +16,15 @@ from nak_torch.tools.types import (
 def calculate_msip_map(
     K_minus_one_i: BatchType,
     particles: BatchPtType,
-    log_v0_evals: BatchType,
-    v1_div_v0_minus_y: BatchPtType,
+    eval_log_v0: BatchType,
+    grad_log_v0: BatchPtType,
 ) -> BatchPtType:
 
     term_v0, _ = recursive_weighted_average_alpha_v(
-        particles, K_minus_one_i, log_v=log_v0_evals
+        particles, K_minus_one_i, log_v=eval_log_v0
     )
     term_v1, _ = recursive_weighted_average_alpha_v(
-        v1_div_v0_minus_y, K_minus_one_i, log_v=log_v0_evals
+        grad_log_v0, K_minus_one_i, log_v=eval_log_v0
     )
     return term_v0 + term_v1
 
