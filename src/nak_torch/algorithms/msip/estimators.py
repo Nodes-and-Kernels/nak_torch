@@ -17,7 +17,7 @@ class MSIPEstimator(ABC):
     def get_v_evals(
         self, particles: BatchPtType, kernel_length_scale: float
     ) -> MSIPEstimatorOutput:
-        """Function that returns estimation of $(log(v_0), -y + v_1 / v_0)$"""
+        """Function that returns estimation of $(log(v_0), ∇ log v_0(y)$$"""
         pass
 
 
@@ -34,8 +34,7 @@ class MSIPFredholm(MSIPEstimator):
 
     def get_v_evals(self, particles, kernel_length_scale):
         grads, vals = self.log_dens_grad_val(particles)
-        sigma_sq = kernel_length_scale * kernel_length_scale
-        ret_v1_ratio = grads.mul_(sigma_sq * self.gradient_decay)
+        ret_v1_ratio = grads.mul_(kernel_length_scale * self.gradient_decay)
         return vals, ret_v1_ratio
 
 
@@ -89,7 +88,6 @@ class MSIPQuadGradientInformed(MSIPEstimator):
 
     def get_v_evals(self, particles, kernel_length_scale):
         quad_pts, quad_wts = self.quadrature(particles.shape[0])
-        sigma_sq = kernel_length_scale * kernel_length_scale
         particle_quad_pts = quad_pts.mul_(kernel_length_scale).add(
             particles.unsqueeze(1)
         )  # (N_part, N_quad, dim)
@@ -101,7 +99,7 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         log_dens_evals = log_dens_evals.reshape(particle_quad_pts.shape[:-1])
 
         v1_integrand = quad_pts.mul_(1 - self.gradient_decay).add_(
-            log_dens_grads.mul_(self.gradient_decay * sigma_sq)
+            log_dens_grads.mul_(self.gradient_decay * kernel_length_scale)
         )
         v1_ratio, log_v0 = vmap_recursive_weighted_average_alpha_v(
             v1_integrand, quad_wts, log_dens_evals
@@ -125,8 +123,7 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
         self.bandwidth = bandwidth
 
     def get_v_evals(self, particles, kernel_length_scale) -> MSIPEstimatorOutput:
-        N = particles.shape[0]
-        K, D = self.means.shape
+        N, D = particles.shape
         sigma_sq = kernel_length_scale * kernel_length_scale
         dtype, device = particles.dtype, particles.device
         use_cholesky_upper = False
@@ -163,8 +160,6 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
         log_v0 = torch.logsumexp(log_w + log_g, dim=1)  # (N,)
 
         # Calculating grad_log_v0
-        torch.Tensor.mT
-
         # __ Computing r_{n,k} = (w_k g_k(x_n)) / sum_j (w_j g_j(x_n))
         # __ in a stable way: r_{n,k} = softmax(log w_k + log g_k(x_n))
         r = torch.softmax(log_w + log_g, dim=1)  # (N, K)
@@ -177,4 +172,4 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
         score_components = LT_inv_neg_z.squeeze(-1)  # (N, K, D)
         grad_log_v0 = (r.unsqueeze(-1) * score_components).sum(dim=1)  # (N, D)
 
-        return log_v0, sigma_sq * grad_log_v0
+        return log_v0, grad_log_v0
