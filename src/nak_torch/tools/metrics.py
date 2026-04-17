@@ -1,5 +1,6 @@
 from typing import Optional
 from abc import ABC, abstractmethod
+from warnings import warn
 from jaxtyping import Float
 
 import torch
@@ -65,7 +66,8 @@ class InclusiveKullbackLeibler(GradFreeMetric):
                 cross_entropy = log_dens_evals.mean()
                 kl = entropy - cross_entropy
             else:
-                entropy = (wts.log() * wts).sum()
+                wts_entropy = wts[wts.abs() > 1e-10]
+                entropy = (wts_entropy.log() * wts_entropy).sum()
                 cross_entropy = log_dens_evals @ wts
                 kl = entropy - cross_entropy
         else:
@@ -90,6 +92,7 @@ class ExclusiveKullbackLeibler(GradFreeMetric):
     """
 
     def __call__(self, pts, wts=None):
+        warn("Exclusive Kullback Leibler is not mathematically correct.")
         N = pts.shape[0]
         N_tens = torch.as_tensor(N, device=pts.device, dtype=pts.dtype)
         log_dens_evals: Tensor
