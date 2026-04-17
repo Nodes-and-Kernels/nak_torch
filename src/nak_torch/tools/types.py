@@ -34,6 +34,8 @@ LogDensity = Callable[[PtType], Float]
 
 GradLogDensity = Callable[[PtType], PtType]
 
+LogDensityGradVal = Callable[[PtType], tuple[PtType, Float]]
+
 BatchLogDensity = Callable[[BatchPtType], BatchType]
 
 BatchLogDensityGradVal = Callable[[BatchPtType], tuple[BatchPtType, BatchType]]

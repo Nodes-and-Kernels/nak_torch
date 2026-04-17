@@ -51,6 +51,18 @@ def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float
     return ret
 
 
+def inverse_multi_quadric_kernel_elem(
+    x: PtType, y: PtType, kernel_length_scale: float
+) -> Float:
+    torch._assert(
+        x.shape == y.shape and y.ndim == 1, "Invalid input dimensions of x and y"
+    )
+    ret = torch.reciprocal(
+        1 + (x - y).square().sum() / (kernel_length_scale * kernel_length_scale)
+    )
+    return ret
+
+
 def matricize_kernel_elem(
     kernel: KernelFunction, use_compiled: bool = True
 ) -> MatSelfKernelFunction:

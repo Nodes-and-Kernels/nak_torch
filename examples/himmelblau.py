@@ -1,6 +1,7 @@
 # %%
 import torch
 import matplotlib.pyplot as plt
+import nak_torch
 from viz_tools import animate_trajectories_box
 from functions import himmelblau
 from nak_torch.algorithms import msip, svgd
@@ -23,17 +24,17 @@ torch.manual_seed(19230182)
 init_particles = torch.randn((n_particles, 2)) + 8.0
 params = {
     "bounds": (-15, 15),
-    "kernel_length_scale": 0.5,
+    "kernel_length_scale": 0.2,
     "init_particles": init_particles,
     "n_particles": n_particles,
     "dim": 2,
-    "lr": 0.6,
-    "kernel_diag_infl": 1e-8,
+    "lr": 0.8,
+    "kernel_diag_infl": 1e-5,
 }
 
 # %%
 estimator_fredholm = MSIPFredholm(
-    gradient_decay=0.85,
+    gradient_decay=0.95,
     log_dens_grad_val=torch.vmap(torch.func.grad_and_value(log_density))
 )
 
@@ -52,7 +53,6 @@ trajectories_fr, trajectories_wts_fr = msip(
     **params
 )
 
-# %%
 Ngrid = 1000
 x = y = torch.linspace(-5, 5, Ngrid)
 X,Y = torch.meshgrid(x,y,indexing="ij")
@@ -89,7 +89,6 @@ trajectories_svgd = svgd(
     **params
 )
 
-# %%
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 pts_svgd = trajectories_svgd[-1]
 s = plt.scatter(
@@ -104,27 +103,45 @@ plt.show()
 # %%
 estimator = MSIPQuadGradientFree(
     log_density,
-    lambda b: spherical_MC_radial_Laguerre(b, 5, 2, 2)
+    lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
 )
+params_gf = params.copy()
+params_gf['lr'] = 0.6
 n_particles = 25
 trajectories_gf,w = msip(
     estimator,
     # n_particles=n_particles,
     # init_particles=init_particles,
-    n_steps=50,          # now interpreted as "epochs" (passes over all particles)
+    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
     # dim=2,
     # bounds=(-20, 20),
     # lr=0.6,
     # kernel_length_scale=0.5,
     # kernel_diag_infl=1e-8,
     seed=1,
-    **params
+    **params_gf
 )
 
 pts_gf = trajectories_gf[-1]
 wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), default_kernel_matrix(pts_gf, params["kernel_length_scale"]))
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
+
+# %%
+batch_log_dens = torch.vmap(log_density)
+batch_grad_log_dens = torch.vmap(torch.func.grad(log_density))
+def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
+    return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
+ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
+print("KSD", ksd_eval(pts_fr, wts_fr), ksd_eval(pts_svgd), ksd_eval(pts_gf, wts_gf))
+
+# %%
+ress = nak_torch.metrics.RelativeESS(batch_log_dens)
+print("rESS", ress(pts_fr, wts_fr), ress(pts_svgd), ress(pts_gf, wts_gf))
+
+# %%
+cross_ent = nak_torch.metrics.CrossEntropy(batch_log_dens)
+print(cross_ent(pts_fr, wts_fr), cross_ent(pts_svgd), cross_ent(pts_gf, wts_gf))
 
 # %%
 plt.rcParams["font.family"] = 'serif'
