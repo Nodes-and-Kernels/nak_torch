@@ -19,7 +19,7 @@ from .types import (
 
 from .kernel import sqexp_kernel_elem, stein_kernel_mat_factory
 
-__all__ = ["InclusiveKullbackLeibler", "KernelSteinDiscrepancy", "RelativeESS"]
+__all__ = ["CrossEntropy", "KernelSteinDiscrepancy", "RelativeESS"]
 
 
 class Metric(ABC):
@@ -50,7 +50,7 @@ class GradFreeMetric(Metric):
         self.is_log_dens_vectorized = is_log_dens_vectorized
 
 
-class InclusiveKullbackLeibler(GradFreeMetric):
+class CrossEntropy(GradFreeMetric):
     r"""
     Given target $\pi$ and particle approximation $\mu$, estimate $D_{KL}(\mu || \pi)$.
     """
@@ -58,31 +58,23 @@ class InclusiveKullbackLeibler(GradFreeMetric):
     def __call__(self, pts, wts=None):
         N = pts.shape[0]
         N_tens = torch.as_tensor(N, device=pts.device, dtype=pts.dtype)
-        kl: Float
+        cross_entropy: Float
         if self.is_log_dens_vectorized:
             log_dens_evals = self.log_dens(pts)
             if wts is None:
-                entropy = -torch.log(N_tens)
-                cross_entropy = log_dens_evals.mean()
-                kl = entropy - cross_entropy
+                cross_entropy = -log_dens_evals.mean()
             else:
-                wts_entropy = wts[wts.abs() > 1e-10]
-                entropy = (wts_entropy.log() * wts_entropy).sum()
-                cross_entropy = log_dens_evals @ wts
-                kl = entropy - cross_entropy
+                cross_entropy = -log_dens_evals @ wts
         else:
-            kl = torch.zeros_like(N_tens)
+            cross_entropy = torch.zeros_like(N_tens)
             for idx in range(pts.shape[0]):
                 cross_entropy_eval = self.log_dens(pts[idx])
-                entropy_eval: Float
                 if wts is None:
                     cross_entropy_eval /= N_tens
-                    entropy_eval = -torch.log(N_tens) / N_tens
                 else:
                     cross_entropy_eval *= wts[idx]
-                    entropy_eval = wts[idx].log() * wts[idx]
-                kl += entropy_eval - cross_entropy_eval
-        return kl
+                cross_entropy -= cross_entropy_eval
+        return cross_entropy
 
 
 class ExclusiveKullbackLeibler(GradFreeMetric):

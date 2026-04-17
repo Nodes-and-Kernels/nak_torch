@@ -133,15 +133,15 @@ batch_grad_log_dens = torch.vmap(torch.func.grad(log_density))
 def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
     return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
 ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
-ksd_eval(pts_fr, wts_fr), ksd_eval(pts_svgd), ksd_eval(pts_gf, wts_gf)
+print("KSD", ksd_eval(pts_fr, wts_fr), ksd_eval(pts_svgd), ksd_eval(pts_gf, wts_gf))
 
 # %%
 ress = nak_torch.metrics.RelativeESS(batch_log_dens)
-ress(pts_fr, wts_fr), ress(pts_svgd), ress(pts_gf, wts_gf)
+print("rESS", ress(pts_fr, wts_fr), ress(pts_svgd), ress(pts_gf, wts_gf))
 
 # %%
-incl_kl = nak_torch.metrics.InclusiveKullbackLeibler(batch_log_dens)
-incl_kl(pts_fr, wts_fr), incl_kl(pts_svgd), incl_kl(pts_gf, wts_gf)
+cross_ent = nak_torch.metrics.CrossEntropy(batch_log_dens)
+print(cross_ent(pts_fr, wts_fr), cross_ent(pts_svgd), cross_ent(pts_gf, wts_gf))
 
 # %%
 plt.rcParams["font.family"] = 'serif'
