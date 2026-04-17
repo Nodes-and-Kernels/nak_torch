@@ -17,14 +17,14 @@ def calculate_msip_map(
     K_minus_one_i: BatchType,
     particles: BatchPtType,
     eval_log_v0: BatchType,
-    grad_log_v0: BatchPtType,
+    sigma_sq_grad_log_v0: BatchPtType,
 ) -> BatchPtType:
 
     term_v0, _ = recursive_weighted_average_alpha_v(
         particles, K_minus_one_i, log_v=eval_log_v0
     )
     term_v1, _ = recursive_weighted_average_alpha_v(
-        grad_log_v0, K_minus_one_i, log_v=eval_log_v0
+        sigma_sq_grad_log_v0, K_minus_one_i, log_v=eval_log_v0
     )
     return term_v0 + term_v1
 
