@@ -3,7 +3,7 @@
 # 05/12/2025
 
 
-from . import kernel, types, quadrature, adaptive_step
+from . import kernel, types, quadrature, adaptive_step, metrics
 from .average import recursive_weighted_average_alpha_v
 from .torchify import differentiable_density_factory
 from .types import GaussianModel
@@ -16,4 +16,5 @@ __all__ = [
     "GaussianModel",
     "quadrature",
     "adaptive_step",
+    "metrics",
 ]
