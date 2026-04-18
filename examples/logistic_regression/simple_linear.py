@@ -1,3 +1,4 @@
+
 # %%
 import torch
 from nak_torch.algorithms import msip, msip_gs, svgd
@@ -25,7 +26,7 @@ data_path = os.path.join(os.path.dirname(__file__), "data", "simple_linear.npy")
 regression_model = LogisticRegressionModel(data_path, None, hyperprior_b=0.01)
 log_dens = regression_model.to_log_dens(use_compiled=False)
 
-plt.scatter(regression_model.data[1], regression_model.data[2], c=regression_model.labels, alpha=0.4)
+plt.scatter(regression_model.train_data[1], regression_model.train_data[2], c=regression_model.train_labels, alpha=0.4)
 plt.show()
 
 # %%
@@ -79,11 +80,11 @@ trajectories_msip, traj_wts_msip = msip(
 # %%
 msip_idx = 999
 msip_final_pts, msip_final_wts = trajectories_msip[msip_idx], traj_wts_msip[msip_idx]
-logit_out = msip_final_pts[:,:-1] @ regression_model.data
+logit_out = msip_final_pts[:,:-1] @ regression_model.train_data
 prob_out = torch.nn.functional.sigmoid(logit_out)
 
 fig, axs = plt.subplots(4,5,figsize=(5*1.25,4.5*1.25))
-sc_data = regression_model.data[1:]
+sc_data = regression_model.train_data[1:]
 for i in range(4):
     for j in range(5):
         ax = axs[i,j]
@@ -95,9 +96,6 @@ for i in range(4):
         ax.set_title("{:.2e}".format(wt), fontdict={'fontsize': 10})
 fig.suptitle("Different regression outcomes, MSIP wt as title")
 plt.show()
-
-# %%
-plt.scatter(sc_data[0], sc_data[1], c=regression_model.labels)
 
 # %%
 n_steps_hmc = 1000
