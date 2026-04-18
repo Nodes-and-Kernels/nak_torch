@@ -166,8 +166,7 @@ class LogisticRegressionModel(AbstractModel):
         )
 
     def to_log_dens(self, use_compiled: bool = True):
-        def log_hyperprior(t):
-            return self.hyperprior.log_prob(t)
+        log_hyperprior = self.hyperprior.log_prob
 
         def log_dens(params: BatchPtType, use_train: bool = True) -> BatchType:
             is_batch = params.ndim == 2
@@ -181,9 +180,12 @@ class LogisticRegressionModel(AbstractModel):
             if self.prior_mean is not None:
                 prior_diff -= self.prior_mean
             coeffs = params[:, :-1]
-            alpha = torch.exp(params[:, -1])
+            log_alpha = params[:, -1]
+            alpha = torch.exp(log_alpha)
             hyperprior_term = log_hyperprior(alpha)
-            prior_term = -torch.sum(torch.square_(prior_diff), dim=-1).mul_(2 * alpha)
+            prior_term = prior_diff.square_().sum(dim=-1).mul_(0.5 * alpha).neg_()
+            # log-normalization constant of prior w.r.t. alpha = precision
+            prior_term += 0.5 * self.dim * log_alpha
             data: Float[Tensor, "dim-1 N_pts"]
             labels: Float[Tensor, " N_pts"]
             if use_train:
