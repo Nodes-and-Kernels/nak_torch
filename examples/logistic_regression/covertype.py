@@ -42,7 +42,7 @@ if not os.path.isfile(DATA_PATH):
 
 # %%
 data_path = DATA_PATH
-regression_model = LogisticRegressionModel(data_path, None, hyperprior_b=0.01, train_proportion=0.8, sum_bernoulli=True)
+regression_model = LogisticRegressionModel(data_path, None, hyperprior_b=0.01, train_proportion=0.8, sum_bernoulli=False)
 log_dens = regression_model.to_log_dens(use_compiled=False)
 
 # %%
@@ -52,18 +52,19 @@ plt.show()
 
 # %%
 n_particles, state_dim = 20, regression_model.dim
-coeff_init = torch.randn((n_particles, regression_model.dim - 1))
-alpha_init = torch.log(regression_model.hyperprior.sample((n_particles,)))
-init_particles = torch.column_stack((coeff_init, alpha_init))
+alpha_init = regression_model.hyperprior.sample((n_particles,1))
+log_alpha_init = alpha_init.log()
+coeff_init = torch.randn((n_particles, regression_model.dim - 1)) / alpha_init.sqrt()
+init_particles = torch.column_stack((coeff_init, log_alpha_init))
 log_dens(init_particles)  # test eval
 
 # %%
 kernel_length_scale = 0.05
 bounds = (-100.0, 100.0)
-gradient_decay = 0.75
-lr_msip = 1e-1
-kernel_diag_infl = 1e-6
-n_steps = 20
+gradient_decay = 0.9
+lr_msip = 0.05
+kernel_diag_infl = 1e-5
+n_steps = 1000
 grad_val_log_p = torch.vmap(torch.func.grad_and_value(log_dens))
 
 @torch.compile(dynamic=False)
@@ -83,7 +84,7 @@ msip_gi = MSIPQuadGradientInformed(grad_val_log_p, mc_quad_rule, gradient_decay)
 
 # %%
 trajectories_msip, traj_wts_msip = msip(
-    msip_gi,
+    msip_f,
     n_particles,
     n_steps,
     dim=state_dim,
@@ -107,21 +108,26 @@ lower_tri_dist = dist_end[*lower_tri_idx]
 plt.hist(lower_tri_dist)
 
 # %%
+from tqdm import tqdm
 bce_logit_v = torch.vmap(torch.nn.functional.binary_cross_entropy_with_logits, in_dims=(0,None))
 
 # @torch.compile
 def bce_logit_t(traj_t):
     logits_t = traj_t[:,:-1] @ regression_model.test_data
     return bce_logit_v(logits_t, regression_model.test_labels)
-# bce_logit_traj = torch.vmap(bce_logit_t)
-bce_traj = torch.stack([bce_logit_t(trajectories_msip[j]) for j in range(trajectories_msip.shape[0])])
+bce_logit_traj = torch.vmap(bce_logit_t)
+bse_traj_list = []
+for j in tqdm(range(trajectories_msip.shape[0])):
+    bse_traj_list.append(bce_logit_t(trajectories_msip[j]))
+bce_traj = torch.stack(bse_traj_list)
 # logits_t = trajectories_msip[:,:,:-1].reshape(-1, trajectories_msip.shape[-1] - 1) @ regression_model.data
 # bce_traj = bce_logit_v(logits_t, regression_model.labels).reshape(*trajectories_msip.shape[:2], -1)
 # print("BCE t=0: {}, BCE t=T: {}".format(bce_0.mean(), bce_T.mean()))
 
+# %%
 fig, ax = plt.subplots()
 for particle_idx in range(n_particles):
-    ax.plot(bce_traj[:,particle_idx], alpha= 0.4)
+    ax.loglog(bce_traj[:,particle_idx], alpha= 0.4)
 plt.show()
 
 # %%
@@ -137,7 +143,6 @@ accuracy_v = torch.vmap(accuracy)
 accuracy_v(trajectories_msip[-1])
 
 # %%
-
 trajectories_msip, traj_wts_msip = svgd(
     msip_f,
     n_particles,
