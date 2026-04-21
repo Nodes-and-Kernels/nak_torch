@@ -1,12 +1,10 @@
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 import pyro
 import pyro.distributions as dist
 from nak_torch import GaussianModel
-
-DeviceLike = Union[str, torch.device, int]
-
+from nak_torch.tools.types import DeviceLike
 
 def get_pyro_std_from_prec(
     prec: torch.Tensor, dim: Optional[int] = None

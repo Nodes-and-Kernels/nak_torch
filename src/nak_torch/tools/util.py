@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from jaxtyping import Float
 from typing import Optional, Callable
-from .types import BatchGradLogDensity, BatchPtType
+from .types import BatchGradLogDensity, BatchPtType, DeviceLike
 import numpy as np
 import inspect
 
@@ -24,7 +24,8 @@ def initialize_particles(
     n_particles: int,
     dim: int,
     init_particles: Optional[Tensor | np.ndarray],
-    device: Optional[torch.device],
+    device: Optional[DeviceLike],
+    dtype: Optional[torch.dtype],
     bounds: Optional[tuple[float, float]],
     rng: Optional[torch.Generator] = None,
 ) -> BatchPtType:
@@ -48,6 +49,12 @@ def initialize_particles(
                 init_particles.device, torch.device(device)
             )
         )
+    if dtype is not None and init_particles.dtype != dtype:
+        raise ValueError(
+            "Unexpected dtype for init_particles: got {}, expected {}".format(
+                init_particles.dtype, dtype
+            )
+        )
     return torch.as_tensor(init_particles, device=device).clone()
 
 
@@ -58,9 +65,9 @@ def batched_grad_log_density_factory(
 ) -> BatchGradLogDensity:
     if grad_log_density is None:
         if is_log_density_batched:
-            return torch.func.grad(lambda p: log_density(p).sum())
+            return torch.func.grad(lambda p, a: log_density(p, a).sum())
         else:
-            return torch.vmap(torch.func.grad(log_density))
+            return torch.vmap(torch.func.grad(log_density), in_dims=(0, None))
     else:
         return grad_log_density
 

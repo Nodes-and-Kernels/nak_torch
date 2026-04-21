@@ -1,8 +1,12 @@
+from typing import Any, Callable, Optional, Protocol, TypeVar, Generic
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
+
 import torch
 from torch import Tensor
 from jaxtyping import Float
-from typing import Callable, Optional, Protocol
-from dataclasses import dataclass
+
+DeviceLike = str | torch.device | int
 
 BatchType = Float[Tensor, "batch"]
 PtType = Float[Tensor, " d"]
@@ -14,9 +18,20 @@ BatchQuadruleWtType = Float[Tensor, "batch quad"]
 KernelMatrixType = Float[Tensor, "batch batch"]
 GradKernelMatrixType = Float[Tensor, "batch batch d"]
 
+DensityGradValOutput = tuple[BatchPtType, BatchType]
 MSIPEstimatorOutput = tuple[BatchType, BatchPtType]
 
 KernelFunction = Callable[[PtType, PtType, float], Float]
+
+EvaluatorOutput = TypeVar("EvaluatorOutput")
+
+
+class BatchDensityEvaluator(ABC, Generic[EvaluatorOutput]):
+    @abstractmethod
+    def __call__(
+        self, particles: BatchPtType, evaluator_args, *target_args
+    ) -> EvaluatorOutput:
+        pass
 
 
 class MatSelfKernelFunction(Protocol):
@@ -28,23 +43,25 @@ class MatSelfKernelFunction(Protocol):
     ) -> KernelMatrixType: ...
 
 
-LogDensity = Callable[[PtType], Float]
+LogDensity = Callable[[PtType, Any], Float]
 
-GradLogDensity = Callable[[PtType], PtType]
+GradLogDensity = Callable[[PtType, Any], PtType]
 
-LogDensityGradVal = Callable[[PtType], tuple[PtType, Float]]
+LogDensityGradVal = Callable[[PtType, Any], tuple[PtType, Float]]
 
-BatchLogDensity = Callable[[BatchPtType], BatchType]
+BatchLogDensity = Callable[[BatchPtType, Any], BatchType]
 
-BatchLogDensityGradVal = Callable[[BatchPtType], tuple[BatchPtType, BatchType]]
+BatchLogDensityGradVal = Callable[[BatchPtType, Any], DensityGradValOutput]
 
-BatchGradLogDensity = Callable[[BatchPtType], BatchPtType]
+BatchGradLogDensity = Callable[[BatchPtType, Any], BatchPtType]
 
 BatchQuadratureRule = Callable[[int], tuple[BatchQuadrulePtType, BatchQuadruleWtType]]
 
-ForwardModel = Callable[[Float[Tensor, " dim"]], Float[Tensor, " obs"]]
+ForwardModel = Callable[[Float[Tensor, " dim"], Any], Float[Tensor, " obs"]]
 
-BatchForwardModel = Callable[[Float[Tensor, "batch dim"]], Float[Tensor, "batch obs"]]
+BatchForwardModel = Callable[
+    [Float[Tensor, "batch dim"], Any], Float[Tensor, "batch obs"]
+]
 
 
 @dataclass
@@ -64,35 +81,32 @@ class GaussianModel:
         prior_mean: float | Float[Tensor, " dim"] = 0.0,
         is_vectorized: bool = False,
     ):
-        if not is_vectorized:
-            forward_model = torch.vmap(forward_model)
-        self.forward_model = forward_model
+        batch_forward_model: BatchForwardModel
+        if is_vectorized:
+            batch_forward_model = forward_model  # type: ignore
+        else:
+            batch_forward_model = torch.vmap(forward_model, in_dims=(0, None))
+        self.forward_model = batch_forward_model
         self.prior_mean = prior_mean
         self.likelihood_precision = likelihood_precision
         self.prior_precision = prior_precision
         self.true_obs = true_obs
         self.prior_mean = prior_mean
 
-    def to_log_dens(self, use_compiled: bool = True):
-        return gaussian_log_dens_factory(self, use_compiled)
+    def to_log_dens(self, use_compiled: bool = True) -> BatchLogDensity:
+        def log_dens(pts: BatchPtType, aux_args: Any) -> BatchType:
+            model_eval = self.forward_model(pts, aux_args)
+            obs_error = model_eval.sub_(self.true_obs)
+            like_term = torch.square(torch.linalg.norm(obs_error, dim=-1)).mul_(
+                self.likelihood_precision
+            )
+            like_term.mul_(self.likelihood_precision)
+            prior_diff = pts
+            if self.prior_mean != 0.0:
+                prior_diff -= self.prior_mean
+            prior_term = torch.square(torch.linalg.norm(prior_diff, dim=-1)).mul_(
+                self.prior_precision
+            )
+            return -0.5 * (prior_term + like_term)
 
-
-def gaussian_log_dens_factory(
-    model: GaussianModel, use_compiled: bool = True
-) -> BatchLogDensity:
-    def log_dens(pts: BatchPtType) -> BatchType:
-        model_eval = model.forward_model(pts)
-        obs_error = model_eval.sub_(model.true_obs)
-        like_term = torch.square(torch.linalg.norm(obs_error, dim=-1)).mul_(
-            model.likelihood_precision
-        )
-        like_term.mul_(model.likelihood_precision)
-        prior_diff = pts
-        if model.prior_mean != 0.0:
-            prior_diff -= model.prior_mean
-        prior_term = torch.square(torch.linalg.norm(prior_diff, dim=-1)).mul_(
-            model.prior_precision
-        )
-        return -0.5 * (prior_term + like_term)
-
-    return torch.compile(log_dens) if use_compiled else log_dens
+        return torch.compile(log_dens) if use_compiled else log_dens
