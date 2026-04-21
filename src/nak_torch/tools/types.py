@@ -23,14 +23,14 @@ MSIPEstimatorOutput = tuple[BatchType, BatchPtType]
 
 KernelFunction = Callable[[PtType, PtType, float], Float]
 
-EvaluatorOutput = TypeVar("EvaluatorOutput")
+EvaluatorOutputT = TypeVar("EvaluatorOutputT")
 
 
-class BatchDensityEvaluator(ABC, Generic[EvaluatorOutput]):
+class BatchDensityEvaluator(ABC, Generic[EvaluatorOutputT]):
     @abstractmethod
     def __call__(
-        self, particles: BatchPtType, evaluator_args, *target_args
-    ) -> EvaluatorOutput:
+        self, particles: BatchPtType, evaluator_args, target_args
+    ) -> EvaluatorOutputT:
         pass
 
 

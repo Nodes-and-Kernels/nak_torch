@@ -1,126 +1,99 @@
-import warnings
-from typing import Optional
+from dataclasses import astuple, dataclass
+from typing import Generic, Optional, TypeVar
 
-from tqdm import tqdm
-import numpy as np
 import torch
 
+from nak_torch.tools.func import WeightedAdaptiveNAKAlgorithm
 from nak_torch.tools.kernel import default_kernel_matrix
-from nak_torch.tools.util import initialize_particles, quantile_distance
+from nak_torch.tools.util import quantile_distance
 from .msip_map import MSIPEstimatorOutput, msip_map, get_msip_wts
 from .estimators import MSIPEstimator
-from .msip_tools import msip_map_used_keys, process_msip_density
 from nak_torch.tools.types import (
-    LogDensity,
-    BatchLogDensity,
-    BatchType,
+    BatchPtType,
+    KernelMatrixType,
     MatSelfKernelFunction,
 )
 
+MSIPEstimatorOutputT = TypeVar("MSIPEstimatorOutputT", bound=MSIPEstimatorOutput)
 
-def msip(
-    log_density: LogDensity | BatchLogDensity | MSIPEstimator,
-    n_particles: int,
-    n_steps: int,
-    dim: int,
-    lr: float,
-    kernel_length_scale: float,
-    noise: float = 0.05,
-    seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
-    init_particles: Optional[torch.Tensor | np.ndarray] = None,
-    bounds: Optional[tuple[float, float]] = None,
-    keep_all: bool = True,
-    get_kernel_matrix: Optional[MatSelfKernelFunction] = None,
-    kernel_diag_infl: float = 0.0,
-    verbose: bool = False,
-    use_quantile_length_scale: Optional[float] = None,
-    compile_step: bool = True,
-    **msip_kwargs,
-):
-    r"""
-    TODO: Document
-    """
 
-    if n_steps < 0:
-        raise ValueError("Expected positive number of steps.")
+@dataclass
+class MSIPAlgorithmArgs(Generic[MSIPEstimatorOutputT]):
+    kernel_lengthscale: float
+    kernel_matrix_inverse: KernelMatrixType
+    msip_estimator_output: MSIPEstimatorOutputT
 
-    unused_kwargs = {
-        k: v for (k, v) in msip_kwargs.items() if k not in msip_map_used_keys
-    }
 
-    if verbose and len(unused_kwargs) > 0:
-        warnings.warn("Unused kwargs: {}".format(unused_kwargs))
+class MSIP(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, MSIPAlgorithmArgs]):
+    kernel_diag_infl: float
+    default_kernel_lengthscale: float
+    kernel_lengthscale_quantile: Optional[float]
+    get_kernel_matrix: MatSelfKernelFunction
 
-    if seed is not None:
-        torch.manual_seed(seed)
-    if get_kernel_matrix is None:
-        get_kernel_matrix = default_kernel_matrix
-
-    msip_estimator = process_msip_density(log_density, **msip_kwargs)
-    est_v = msip_estimator.get_v_evals
-    _msip_map = msip_map
-    _get_msip_wts = get_msip_wts
-    if compile_step:
-        _msip_map = torch.compile(msip_map)
-        _get_msip_wts = torch.compile(_get_msip_wts)
-        est_v = torch.compile(est_v)
-
-    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
-
-    if keep_all:
-        trajectories = torch.empty(
-            (n_steps + 1, *particles.shape), device=device, dtype=particles.dtype
-        )
-        trajectories[0].copy_(particles)
-        traj_wts = torch.empty(
-            (n_steps + 1, particles.shape[0]), device=device, dtype=particles.dtype
-        )
-    else:
-        trajectories = torch.empty(())
-        traj_wts = torch.empty(())
-
-    msip_estimator_out: MSIPEstimatorOutput
-    particle_wts: BatchType
-    for idx in tqdm(range(n_steps + 1), disable=not verbose):
-        if use_quantile_length_scale is not None:
-            kernel_length_scale = quantile_distance(
-                particles, use_quantile_length_scale
+    def __init__(
+        self,
+        *_,
+        kernel_diag_infl: float = 0.0,
+        kernel_lengthscale: Optional[float] = None,
+        kernel_lengthscale_quantile: Optional[float] = None,
+        get_kernel_matrix: Optional[MatSelfKernelFunction] = None,
+    ):
+        self.kernel_diag_infl = kernel_diag_infl
+        if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
+            raise ValueError(
+                "Must have either kernel_lengthscale"
+                "or kernel_lengthscale_quantile as value"
             )
+        self.kernel_lengthscale = kernel_lengthscale
+        self.kernel_lengthscale_quantile = kernel_lengthscale_quantile
+        if get_kernel_matrix is None:
+            self.get_kernel_matrix = default_kernel_matrix
+        else:
+            self.get_kernel_matrix = get_kernel_matrix
 
-        kernel_matrix = get_kernel_matrix(particles, kernel_length_scale)
-        kernel_matrix[torch.arange(n_particles), torch.arange(n_particles)] += (
-            kernel_diag_infl
+    def get_adaptive_lengthscale(self, particles: BatchPtType) -> float:
+        q = self.kernel_lengthscale_quantile
+        if q is None:
+            return self.default_kernel_lengthscale
+        return quantile_distance(particles, q)
+
+    def get_infl_kernel_matrix(self, particles, kernel_lengthscale) -> KernelMatrixType:
+        kernel_matrix = self.get_kernel_matrix(particles, kernel_lengthscale)
+        if self.kernel_diag_infl is not None:
+            kernel_matrix[
+                torch.arange(self.n_particles, device=self.device),
+                torch.arange(self.n_particles, device=self.device),
+            ] += self.kernel_diag_infl
+        return kernel_matrix
+
+    def initialize(self, init_particles, target, target_args):
+        kernel_lengthscale = self.get_adaptive_lengthscale(init_particles)
+        estimator_output = target(init_particles, kernel_lengthscale, target_args)
+        kernel_matrix = self.get_infl_kernel_matrix(init_particles, kernel_lengthscale)
+        wts = get_msip_wts(init_particles, estimator_output, kernel_matrix)
+        return wts, MSIPAlgorithmArgs(
+            kernel_lengthscale, kernel_matrix, estimator_output
         )
 
-        msip_estimator_out = est_v(particles, kernel_length_scale)
-        particle_wts = _get_msip_wts(particles, msip_estimator_out, kernel_matrix)
+    def step(self, lr, particles, target, algorithm_args, target_args):
+        kernel_lengthscale, kernel_matrix, estimator_output = astuple(algorithm_args)
+        kernel_matrix_inverse = torch.linalg.pinv(kernel_matrix)
 
-        if keep_all:
-            traj_wts[idx].copy_(particle_wts)
+        # Update the particles
+        particles_diff = msip_map(
+            estimator_output,
+            particles,
+            kernel_matrix_inverse,
+            output_idx=None,
+        )
+        new_particles = particles * (1 - lr) + lr * particles_diff
 
-        if idx < n_steps:
-            if kernel_diag_infl > 0:
-                kernel_matrix_inverse = torch.linalg.inv(kernel_matrix)
-            else:
-                kernel_matrix_inverse = torch.linalg.pinv(kernel_matrix)
-
-            particles_diff = _msip_map(
-                msip_estimator_out,
-                particles,
-                kernel_matrix_inverse,
-                output_idx=None,
-            )
-
-            with torch.no_grad():
-                particles = (1.0 - lr) * particles + lr * particles_diff
-                if bounds is not None:
-                    particles.clamp_(bounds[0], bounds[1])
-            if keep_all:
-                trajectories[idx + 1].copy_(particles)
-
-    if not keep_all:
-        trajectories = particles.unsqueeze_(0)
-        traj_wts = particle_wts.unsqueeze_(0)  # type: ignore
-
-    return trajectories.detach(), traj_wts.detach()
+        # Update the parameters
+        kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)
+        kernel_matrix = self.get_infl_kernel_matrix(new_particles, kernel_lengthscale)
+        msip_estimator_output = target(particles, kernel_lengthscale, target_args)
+        algorithm_args = MSIPAlgorithmArgs(
+            kernel_lengthscale, kernel_matrix_inverse, msip_estimator_output
+        )
+        new_weights = get_msip_wts(new_particles, estimator_output, kernel_matrix)
+        return new_particles, new_weights, algorithm_args

@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 from jaxtyping import Float
 from torch import Tensor
 from .types import (
@@ -124,6 +124,7 @@ def stein_kernel_diffs_factory(
 def stein_kernel_mat_factory(
     grad_log_p: GradLogDensity | BatchGradLogDensity,
     kernel_fcn: KernelFunction,
+    target_args: Any,
     is_grad_vectorized: bool = False,
     use_compiled: bool = True,
 ) -> MatSelfKernelFunction:
@@ -133,12 +134,12 @@ def stein_kernel_mat_factory(
     def stein_kernel_mat(
         pts: BatchPtType, kernel_length_scale: float, pts2: Optional[BatchPtType] = None
     ) -> KernelMatrixType:
-        grad_log_p_eval1 = grad_log_p_v(pts)
+        grad_log_p_eval1 = grad_log_p_v(pts, target_args)
         if pts2 is None:
             pts2 = pts
             grad_log_p_eval2 = grad_log_p_eval1
         else:
-            grad_log_p_eval2 = grad_log_p_v(pts2)
+            grad_log_p_eval2 = grad_log_p_v(pts2, target_args)
         trace_kernel, grad1_kernel, eval_kernel = kernel_diffs(
             pts, pts2, kernel_length_scale
         )

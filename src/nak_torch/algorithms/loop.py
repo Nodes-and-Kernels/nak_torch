@@ -10,12 +10,14 @@ from nak_torch.tools.types import (
     BatchDensityEvaluator,
 )
 
-from nak_torch.tools.func import NAKAlgorithm, WeightedNAKAlgorithm
+from nak_torch.tools.func import (
+    GeneralAdaptiveNAKAlgorithm,
+)
 
 
 def nak(
-    log_density: BatchDensityEvaluator,
-    algorithm: NAKAlgorithm,
+    target: BatchDensityEvaluator,
+    algorithm: GeneralAdaptiveNAKAlgorithm,
     n_particles: int,
     n_steps: int,
     lr: float,
@@ -40,45 +42,44 @@ def nak(
     particles = initialize_particles(
         n_particles, dim, init_particles, device, dtype, bounds
     )
-    is_weighted = isinstance(algorithm, WeightedNAKAlgorithm)
+
+    particle_wts, algorithm_args = algorithm.initialize(particles, target, target_args)
+
     if keep_all:
         trajectories = torch.empty(
             (n_steps + 1, *particles.shape), device=device, dtype=dtype
         )
         trajectories[0].copy_(particles)
-        if is_weighted:
+        if algorithm.is_weighted():
             traj_wts = torch.empty(
                 (n_steps + 1, particles.shape[0]), device=device, dtype=dtype
             )
+            traj_wts[0].copy_(particle_wts)
         else:
             traj_wts = torch.empty(())
     else:
         trajectories = torch.empty(())
         traj_wts = torch.empty(())
-    particle_wts = torch.empty(())
-    for idx in tqdm(range(n_steps + 1), disable=not verbose):
-        algorithm_args = algorithm.update(particles)
 
-        if keep_all and is_weighted:
-            particle_wts = algorithm.get_weights(particles, target_args)
-            traj_wts[idx].copy_(particle_wts)
+    for idx in tqdm(range(n_steps), disable=not verbose):
+        if keep_all:
+            trajectories[idx + 1].copy_(particles)
+            if algorithm.is_weighted() and keep_all:
+                traj_wts[idx + 1].copy_(particle_wts)
 
-        if idx < n_steps:
-            particles, algorithm_args = algorithm(
-                lr, log_density, particles, algorithm_args, target_args
-            )
+        particles, particle_wts, algorithm_args = algorithm.step(
+            lr, particles, algorithm_args, target, target_args
+        )
 
-            if bounds is not None:
-                particles.clamp_(bounds[0], bounds[1])
-
-            if keep_all:
-                trajectories[idx + 1].copy_(particles)
+        if bounds is not None:
+            particles.clamp_(bounds[0], bounds[1])
 
     if not keep_all:
         trajectories = particles.unsqueeze_(0)
-        if is_weighted:
+        if algorithm.is_weighted():
             traj_wts = particle_wts.unsqueeze_(0)
-    if is_weighted:
+
+    if algorithm.is_weighted():
         return trajectories.detach(), traj_wts.detach()
 
     return trajectories.detach()
