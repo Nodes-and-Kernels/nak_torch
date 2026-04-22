@@ -12,7 +12,7 @@ torch.set_default_dtype(torch.float64)
 torch.manual_seed(1023921)
 
 # %%
-n_steps, n_particles = 1000, 20
+n_steps, n_particles = 1000, 25
 lr_msip = 80e-2
 kernel_length_scale = 1.0
 kernel_diag_infl = 1e-8

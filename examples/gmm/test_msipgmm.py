@@ -33,7 +33,7 @@ post_log_dens_grad_val = torch.func.grad_and_value(post_log_dens)
 post_log_dens_grad_val_batch = torch.vmap(post_log_dens_grad_val)
 
 n_steps, n_particles = 500, 5
-lr_msip = 800e-3
+lr_msip = 80e-3
 kernel_length_scale = 2.8
 kernel_diag_infl = 1e-8
 gradient_decay = 1.0
