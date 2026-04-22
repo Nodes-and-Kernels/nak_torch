@@ -62,11 +62,11 @@ model = nak_torch.GaussianModel(
 
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
 n_steps     = 500
-n_particles = 100
+n_particles = 20
 lr          = 0.01
 lr_msip     = 1e-2
 
-kernel_length_scale = 1.5
+kernel_length_scale = 3.0
 kernel_diag_infl    = 1e-8
 gradient_decay      = 1.0
 bounds              = (-100.0, 100.0)
@@ -199,20 +199,12 @@ algo_trajs = {
     "MSIP-GS-GMM":   trajectories_msip_gs_gmm,
 }
 
-algo_few_trajs = {
-    "SVGD":          trajectories_svgd,
-    "GI-ALDI":       trajectories_galdi,
-    "EKS":           trajectories_eks,
-    "MSIP-QG":       trajectories_msip_qg,
-    "MSIP-GS-QG":    trajectories_msip_gs_qg,
-}
-
 algo_last_wts = {
-#     "MSIP-Fredholm": traj_wts_msip_f[-1],
-#     "MSIP-QG":       traj_wts_msip_qg[-1],
-#     "MSIP-GS-QG":    traj_wts_msip_gs_qg[-1],
-#     "MSIP-GMM":      traj_wts_msip_gmm[-1],
-#     "MSIP-GS-GMM":   traj_wts_msip_gs_gmm[-1],
+    "MSIP-Fredholm": traj_wts_msip_f[-1],
+    "MSIP-QG":       traj_wts_msip_qg[-1],
+    "MSIP-GS-QG":    traj_wts_msip_gs_qg[-1],
+    "MSIP-GMM":      traj_wts_msip_gmm[-1],
+    "MSIP-GS-GMM":   traj_wts_msip_gs_gmm[-1],
 }
 
 metrics        = {name: {"mmd": [], "ksd_rbf": [], "ksd_imq": []} for name in algo_trajs}
@@ -268,7 +260,7 @@ def rbf_fn(x, y):
 
 
 def imq_fn(x, y):
-    return (1.0 + ((x - y) ** 2).sum()) ** (-0.1)
+    return (1.0 + ((x - y) ** 2).sum()) ** (-0.5)
 
 
 def compute_ksd(particles, log_p_grad_fn, kernel_fn):
@@ -381,7 +373,7 @@ for name, traj in algo_trajs.items():
     fig, ax = plt.subplots(figsize=(5, 5))
     plot_particles(ax, pts, wts, title=f"{name} – step {n_steps}")
     plt.tight_layout()
-    fname = f"gi_particles_{name.replace(' ', '_').replace('/', '-')}_sigma_"+str(kernel_length_scale)+".pdf"
+    fname = f"gi_particles_{name.replace(' ', '_').replace('/', '-')}.pdf"
     plt.savefig(fname)
     plt.close()
     print(f"Saved {fname}")
@@ -399,9 +391,9 @@ ax.set_ylabel("MMD (RBF kernel)")
 ax.set_title("MMD vs Iteration – gradient-informed algorithms")
 ax.legend(fontsize=8, ncol=2)
 plt.tight_layout()
-plt.savefig("gi_MMD_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+plt.savefig("gi_MMD_all_algorithms.pdf")
 plt.close()
-print("Saved gi_MMD_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+print("Saved gi_MMD_all_algorithms.pdf")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # KSD (RBF) vs iteration
@@ -415,9 +407,9 @@ ax.set_ylabel("KSD (RBF kernel)")
 ax.set_title("KSD [RBF] vs Iteration – gradient-informed algorithms")
 ax.legend(fontsize=8, ncol=2)
 plt.tight_layout()
-plt.savefig("gi_KSD_RBF_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+plt.savefig("gi_KSD_RBF_all_algorithms.pdf")
 plt.close()
-print("Saved gi_KSD_RBF_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+print("Saved gi_KSD_RBF_all_algorithms.pdf")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # KSD (IMQ) vs iteration
@@ -431,59 +423,8 @@ ax.set_ylabel("KSD (IMQ kernel)")
 ax.set_title("KSD [IMQ] vs Iteration – gradient-informed algorithms")
 ax.legend(fontsize=8, ncol=2)
 plt.tight_layout()
-plt.savefig("gi_KSD_IMQ_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+plt.savefig("gi_KSD_IMQ_all_algorithms.pdf")
 plt.close()
-print("Saved gi_KSD_IMQ_all_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MMD vs iteration - few algorithms
-# ══════════════════════════════════════════════════════════════════════════════
-
-fig, ax = plt.subplots(figsize=(9, 5))
-for name in algo_few_trajs:
-    ax.semilogy(steps_recorded, metrics[name]["mmd"], label=name)
-ax.set_xlabel("Iteration")
-ax.set_ylabel("MMD (RBF kernel)")
-ax.set_title("MMD vs Iteration – gradient-informed algorithms")
-ax.legend(fontsize=8, ncol=2)
-plt.tight_layout()
-plt.savefig("gi_MMD_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-plt.close()
-print("Saved gi_MMD_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KSD (RBF) vs iteration - few algorithms
-# ══════════════════════════════════════════════════════════════════════════════
-
-fig, ax = plt.subplots(figsize=(9, 5))
-for name in algo_few_trajs:
-    ax.semilogy(steps_recorded, metrics[name]["ksd_rbf"], label=name)
-ax.set_xlabel("Iteration")
-ax.set_ylabel("KSD (RBF kernel)")
-ax.set_title("KSD [RBF] vs Iteration – gradient-informed algorithms")
-ax.legend(fontsize=8, ncol=2)
-plt.tight_layout()
-plt.savefig("gi_KSD_RBF_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-plt.close()
-print("Saved gi_KSD_RBF_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# KSD (IMQ) vs iteration - few algorithms
-# ══════════════════════════════════════════════════════════════════════════════
-
-fig, ax = plt.subplots(figsize=(9, 5))
-for name in algo_few_trajs:
-    ax.semilogy(steps_recorded, metrics[name]["ksd_imq"], label=name)
-ax.set_xlabel("Iteration")
-ax.set_ylabel("KSD (IMQ kernel)")
-ax.set_title("KSD [IMQ] vs Iteration – gradient-informed algorithms")
-ax.legend(fontsize=8, ncol=2)
-plt.tight_layout()
-plt.savefig("gi_KSD_IMQ_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
-plt.close()
-print("Saved gi_KSD_IMQ_notall_algorithms_sigma_"+str(kernel_length_scale)+".pdf")
+print("Saved gi_KSD_IMQ_all_algorithms.pdf")
 
 print("All done.")
