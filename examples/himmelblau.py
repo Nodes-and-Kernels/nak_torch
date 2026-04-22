@@ -40,16 +40,7 @@ estimator_fredholm = MSIPFredholm(
 
 trajectories_fr, trajectories_wts_fr = msip(
     estimator_fredholm,
-    # n_particles=n_particles,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # lr=0.6,
-    # noise=0.05,          # currently unused, kept for compatibility
-    # kernel_length_scale=0.5,
-    # inner_tol=1e-4,      # equilibrium tolerance for a particle
-    # max_inner_steps=1000,  # max inner iterations per particle
-    # kernel_diag_infl=1e-8,
-    # seed=,
+    n_steps=100,
     **params
 )
 
@@ -74,18 +65,7 @@ plt.show()
 # %%
 trajectories_svgd = svgd(
     log_density,
-    # n_particles=25,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # dim=2,
-    # bounds=(-20, 20),
-    # lr=0.6,
-    # noise=0.05,          # currently unused, kept for compatibility
-    # kernel_length_scale=0.5,
-    # inner_tol=1e-4,      # equilibrium tolerance for a particle
-    # max_inner_steps=1000,  # max inner iterations per particle
-    # kernel_diag_infl=1e-8,
-    # seed=,
+    n_steps=100,
     **params
 )
 
@@ -110,14 +90,7 @@ params_gf['lr'] = 0.6
 n_particles = 25
 trajectories_gf,w = msip(
     estimator,
-    # n_particles=n_particles,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # dim=2,
-    # bounds=(-20, 20),
-    # lr=0.6,
-    # kernel_length_scale=0.5,
-    # kernel_diag_infl=1e-8,
+    n_steps=100,
     seed=1,
     **params_gf
 )
@@ -130,18 +103,30 @@ plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
 # %%
 batch_log_dens = torch.vmap(log_density)
 batch_grad_log_dens = torch.vmap(torch.func.grad(log_density))
-def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
+def ksd_kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
     return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
-ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
-print("KSD", ksd_eval(pts_fr, wts_fr), ksd_eval(pts_svgd), ksd_eval(pts_gf, wts_gf))
 
-# %%
-ress = nak_torch.metrics.RelativeESS(batch_log_dens)
-print("rESS", ress(pts_fr, wts_fr), ress(pts_svgd), ress(pts_gf, wts_gf))
+ksd_lengthscale = 0.25
 
-# %%
-cross_ent = nak_torch.metrics.CrossEntropy(batch_log_dens)
-print(cross_ent(pts_fr, wts_fr), cross_ent(pts_svgd), cross_ent(pts_gf, wts_gf))
+metrics = {
+    "KSD": nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, ksd_lengthscale, kernel_elem=ksd_kernel_elem),
+    "rESS": nak_torch.metrics.RelativeESS(batch_log_dens),
+    "CrossEntropy": nak_torch.metrics.CrossEntropy(batch_log_dens)
+}
+for metric_name, metric in metrics.items():
+    print(
+        "\n\n" + metric_name,
+        "\nFredholm, weighted",
+        metric(pts_fr, wts_fr).item(),
+        "Fredholm, unweighted",
+        metric(pts_fr).item(),
+        "\nSVGD",
+        metric(pts_svgd).item(),
+        "\nGradient-free, weighted",
+        metric(pts_gf, wts_gf).item(),
+        "\nGradient-free, unweighted",
+        metric(pts_gf).item(),
+    )
 
 # %%
 plt.rcParams["font.family"] = 'serif'
@@ -178,11 +163,5 @@ if save_gif:
         log_density, trajectories_fr, 1, bounds,
         save_path=fpath, writer="ffmpeg"
     )
-    # fpath = f"results/gif/gradfree_{function_name}_particles_{now_stamp}.mp4"
-    # animate_trajectories_box(
-    #     log_density, trajectories_gf, 1, bounds,
-    #     save_path=fpath, writer="ffmpeg"
-    # )
-
 
 # %%
