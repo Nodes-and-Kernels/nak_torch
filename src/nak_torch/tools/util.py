@@ -29,10 +29,17 @@ def initialize_particles(
     bounds: Optional[tuple[float, float]],
     rng: Optional[torch.Generator] = None,
 ) -> BatchPtType:
-    rng = torch.default_generator
+    if rng is None:
+        rng = torch.default_generator
+    if device is None:
+        device = torch.get_default_device()
+    elif not isinstance(device, torch.device):
+        device = torch.device(device)
+    if rng.device != device:
+        raise ValueError(f"Expected rng to be on device {device}. Got {rng.device}")
     if init_particles is None:
         if bounds is None:
-            return torch.randn((n_particles, dim), device=device)
+            return torch.randn((n_particles, dim), device=device, generator=rng)
         else:
             return torch.empty((n_particles, dim), device=device).uniform_(
                 *bounds, generator=rng

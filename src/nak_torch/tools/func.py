@@ -37,7 +37,7 @@ class GeneralAdaptiveNAKAlgorithm(
         self.device = device
         self.dtype = dtype
         self.verbose = verbose
-        if verbose:
+        if verbose and len(kwargs) > 0:
             warnings.warn(f"Unused kwargs:\n{kwargs}")
 
     @abstractmethod

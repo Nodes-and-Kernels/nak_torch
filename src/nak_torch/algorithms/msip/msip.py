@@ -34,7 +34,7 @@ class MSIP(GeneralMSIPAlgorithm[MSIPAlgorithmArgs]):
         # Update the parameters
         kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)
         kernel_matrix = self.get_infl_kernel_matrix(new_particles, kernel_lengthscale)
-        msip_estimator_output = target(particles, kernel_lengthscale, target_args)
+        msip_estimator_output = target(new_particles, kernel_lengthscale, target_args)
         algorithm_args = MSIPAlgorithmArgs(
             kernel_lengthscale, kernel_matrix, msip_estimator_output
         )

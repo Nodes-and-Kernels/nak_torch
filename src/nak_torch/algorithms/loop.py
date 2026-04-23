@@ -21,10 +21,9 @@ __all__ = ["nak"]
 def nak(
     target: BatchTargetEvaluator,
     algorithm: GeneralAdaptiveNAKAlgorithm,
-    n_particles: int,
     n_steps: int,
     lr: float,
-    seed: Optional[int] = None,
+    rng_or_seed: Optional[int | torch.Generator] = None,
     init_particles: Optional[Tensor | np.ndarray] = None,
     bounds: Optional[tuple[float, float]] = None,
     keep_all: bool = True,
@@ -34,18 +33,24 @@ def nak(
     r"""
     TODO: Document
     """
-    verbose = algorithm.verbose
-    if verbose:
+    verbose, n_particles = algorithm.verbose, algorithm.n_particles
+    if verbose and len(kwargs) > 0:
         warnings.warn(f"Discarding kwargs {kwargs}")
     if n_steps < 0:
         raise ValueError("Expected positive number of steps.")
 
-    if seed is not None:
-        torch.manual_seed(seed)
-
     dim, device, dtype = algorithm.dim, algorithm.device, algorithm.dtype
+    rng: torch.Generator
+    if isinstance(rng_or_seed, int):
+        rng = torch.Generator(device)
+        rng.manual_seed(rng_or_seed)
+    elif rng_or_seed is not None:
+        rng = rng_or_seed
+    else:
+        rng = torch.default_generator
+
     particles = initialize_particles(
-        n_particles, dim, init_particles, device, dtype, bounds
+        n_particles, dim, init_particles, device, dtype, bounds, rng=rng
     )
 
     particle_wts, algorithm_args = algorithm.initialize(particles, target, target_args)
