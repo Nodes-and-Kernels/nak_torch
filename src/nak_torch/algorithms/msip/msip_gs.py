@@ -1,139 +1,42 @@
-import warnings
-from typing import Optional
+from dataclasses import astuple
 
-from tqdm import tqdm
-import numpy as np
 import torch
 
-from nak_torch.tools.kernel import default_kernel_matrix
-from nak_torch.tools.util import initialize_particles, quantile_distance
 from .msip_map import msip_map, get_msip_wts
-from .estimators import MSIPEstimator
-from .msip_tools import msip_map_used_keys, process_msip_density
-
-from nak_torch.tools.types import (
-    LogDensity,
-    BatchLogDensity,
-    BatchType,
-    MatSelfKernelFunction,
-)
+from .msip_tools import GeneralMSIPAlgorithm, MSIPGSAlgorithmArgs
 
 
-# Gauss-Seidel variant of MSIP.
-def msip_gs(
-    log_density: LogDensity | BatchLogDensity | MSIPEstimator,
-    n_particles: int,
-    n_steps: int,
-    dim: int,
-    lr: float,
-    kernel_length_scale: float,
-    noise: float = 0.05,
-    seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
-    init_particles: Optional[torch.Tensor | np.ndarray] = None,
-    bounds: Optional[tuple[float, float]] = None,
-    keep_all: bool = True,
-    get_kernel_matrix: Optional[MatSelfKernelFunction] = None,
-    kernel_diag_infl: float = 0.0,
-    verbose: bool = False,
-    use_quantile_length_scale: Optional[float] = None,
-    compile_step: bool = True,
-    **msip_kwargs,
-):
-    r"""
-    TODO: Document
-    """
+class MSIPGS(GeneralMSIPAlgorithm[MSIPGSAlgorithmArgs]):
+    def initialize(self, init_particles, target, target_args):
+        kernel_lengthscale = self.get_adaptive_lengthscale(init_particles)
+        estimator_output = target(init_particles, kernel_lengthscale, target_args)
+        kernel_matrix = self.get_infl_kernel_matrix(init_particles, kernel_lengthscale)
+        wts = get_msip_wts(init_particles, estimator_output, kernel_matrix)
+        return wts, MSIPGSAlgorithmArgs(kernel_lengthscale, estimator_output)
 
-    if n_steps < 0:
-        raise ValueError("Expected positive number of steps.")
-
-    unused_kwargs = {
-        k: v for (k, v) in msip_kwargs.items() if k not in msip_map_used_keys
-    }
-
-    if verbose and len(unused_kwargs) > 0:
-        warnings.warn("Unused kwargs: {}".format(unused_kwargs))
-
-    if seed is not None:
-        torch.manual_seed(seed)
-    if get_kernel_matrix is None:
-        get_kernel_matrix = default_kernel_matrix
-
-    msip_estimator = process_msip_density(log_density, **msip_kwargs)
-    est_v = msip_estimator.get_v_evals
-    _msip_map = msip_map
-    _get_msip_wts = get_msip_wts
-    if compile_step:
-        _msip_map = torch.compile(msip_map)
-        _get_msip_wts = torch.compile(_get_msip_wts)
-        est_v = torch.compile(est_v)
-
-    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
-
-    if keep_all:
-        trajectories = torch.empty(
-            (n_steps + 1, *particles.shape), device=device, dtype=particles.dtype
-        )
-        trajectories[0].copy_(particles)
-        traj_wts = torch.empty(
-            (n_steps + 1, particles.shape[0]), device=device, dtype=particles.dtype
-        )
-    else:
-        trajectories = torch.empty(())
-        traj_wts = torch.empty(())
-
-    particle_wts: BatchType = torch.tensor(())
-
-    if use_quantile_length_scale is not None:
-        kernel_length_scale = quantile_distance(particles, use_quantile_length_scale)
-    est_out = est_v(particles, kernel_length_scale)
-
-    # est_out should keep references to est_out_0 and est_out_1
-    est_out_0, est_out_1 = est_out
-    for step in tqdm(range(n_steps + 1), disable=not verbose):
-        if use_quantile_length_scale is not None:
-            kernel_length_scale = quantile_distance(
-                particles, use_quantile_length_scale
-            )
-
-        for i in range(n_particles):
-            km_i = get_kernel_matrix(particles, kernel_length_scale)
-            if kernel_diag_infl > 0:
-                km_i[torch.arange(n_particles), torch.arange(n_particles)] += (
-                    kernel_diag_infl
-                )
-
-            est_out_i_0, est_out_i_1 = est_v(
-                particles[i].unsqueeze(0), kernel_length_scale
+    def step(self, lr, particles, target, algorithm_args, target_args):
+        kernel_lengthscale, _, estimator_output = astuple(algorithm_args)
+        est_out_0, est_out_1 = estimator_output
+        new_particles = particles.clone()
+        for i in range(particles.shape[0]):
+            km_i = self.get_infl_kernel_matrix(particles, kernel_lengthscale)
+            km_inv_i = torch.linalg.pinv(km_i)
+            est_out_i_0, est_out_i_1 = target(
+                new_particles[i].unsqueeze(0), kernel_lengthscale, target_args
             )
             est_out_0[i].copy_(est_out_i_0.squeeze())
             est_out_1[i].copy_(est_out_i_1.squeeze())
 
-            particle_wts = _get_msip_wts(particles, est_out, km_i)
+            target_i = msip_map(estimator_output, particles, km_inv_i, output_idx=i)
 
-            if keep_all and i == n_particles - 1:
-                traj_wts[step].copy_(particle_wts)
+            new_particles[i].mul_(1.0 - lr).add_(target_i.mul_(lr))
 
-            if step >= n_steps:
-                continue
-
-            if kernel_diag_infl > 0:
-                km_inv_i = torch.linalg.inv(km_i)
-            else:
-                km_inv_i = torch.linalg.pinv(km_i)
-
-            target_i = _msip_map(est_out, particles, km_inv_i, output_idx=i)
-
-            with torch.no_grad():
-                particles[i].mul_(1.0 - lr).add_(target_i.mul_(lr))
-                if bounds is not None:
-                    particles[i].clamp_(bounds[0], bounds[1])
-
-        if keep_all and step < n_steps:
-            trajectories[step + 1].copy_(particles)
-
-    if not keep_all:
-        trajectories = particles.unsqueeze_(0)
-        traj_wts = particle_wts.unsqueeze_(0)
-
-    return trajectories.detach(), traj_wts.detach()
+        # Update the parameters
+        new_kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)
+        kernel_matrix = self.get_infl_kernel_matrix(new_particles, kernel_lengthscale)
+        if new_kernel_lengthscale != kernel_lengthscale:
+            estimator_output = target(particles, new_kernel_lengthscale, target_args)
+            kernel_lengthscale = new_kernel_lengthscale
+        algorithm_args = MSIPGSAlgorithmArgs(kernel_lengthscale, estimator_output)
+        new_weights = get_msip_wts(new_particles, estimator_output, kernel_matrix)
+        return new_particles, new_weights, algorithm_args
