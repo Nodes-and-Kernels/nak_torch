@@ -11,6 +11,8 @@ from nak_torch.tools.types import (
 )
 from nak_torch.tools.util import sym_sqrtm
 
+__all__ = ["CBS"]
+
 
 def cbs_step(
     particles: BatchPtType,
@@ -39,9 +41,7 @@ class CBSAlgorithmArgs:
     motion_scaling_sq_div_lr: float
 
 
-class CBSAlgorithm(
-    UnweightedAdaptiveNAKAlgorithm[BatchLogDensityEvaluator, CBSAlgorithmArgs]
-):
+class CBS(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityEvaluator, CBSAlgorithmArgs]):
     default_inverse_temp: float
     rng: torch.Generator
 

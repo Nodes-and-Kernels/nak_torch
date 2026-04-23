@@ -5,6 +5,8 @@ import torch
 from .msip_map import msip_map, get_msip_wts
 from .msip_tools import GeneralMSIPAlgorithm, MSIPGSAlgorithmArgs
 
+__all__ = ["MSIPGS"]
+
 
 class MSIPGS(GeneralMSIPAlgorithm[MSIPGSAlgorithmArgs]):
     def initialize(self, init_particles, target, target_args):

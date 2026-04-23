@@ -5,6 +5,8 @@ import torch
 from nak_torch.algorithms.msip.msip_tools import GeneralMSIPAlgorithm, MSIPAlgorithmArgs
 from .msip_map import msip_map, get_msip_wts
 
+__all__ = ["MSIP"]
+
 
 class MSIP(GeneralMSIPAlgorithm[MSIPAlgorithmArgs]):
     def initialize(self, init_particles, target, target_args):

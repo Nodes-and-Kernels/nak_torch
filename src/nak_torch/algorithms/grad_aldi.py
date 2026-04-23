@@ -10,6 +10,8 @@ from nak_torch.tools.util import (
     sym_sqrtm,
 )
 
+__all__ = ["GradALDI"]
+
 
 def grad_aldi_step(
     particles: BatchPtType,
@@ -36,9 +38,7 @@ def grad_aldi_step(
     return drift_term, particles_noise
 
 
-class GradALDIAlgorithm(
-    UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None]
-):
+class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None]):
     rng: torch.Generator
 
     def _sqrt(self, x: float):
@@ -67,4 +67,4 @@ class GradALDIAlgorithm(
         particles_diff.mul_(lr)
         particles_noise.mul_(self._sqrt(lr))
         new_particles = particles_diff.add_(particles).add_(particles_noise)
-        return new_particles, None, algorithm_args
+        return new_particles, None, None

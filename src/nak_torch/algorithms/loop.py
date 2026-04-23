@@ -14,6 +14,8 @@ from nak_torch.tools.func import (
     GeneralAdaptiveNAKAlgorithm,
 )
 
+__all__ = ["nak"]
+
 
 def nak(
     target: BatchTargetEvaluator,

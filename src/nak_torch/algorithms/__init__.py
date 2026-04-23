@@ -8,27 +8,25 @@
 # 05/12/2025
 
 from .eks import eks
-from .msip import msip, msip_gs, msip_ni, msip_greedy, msip_geom_greedy, msip_adapt
-from .svgd import svgd
+from .msip import MSIP, MSIPGS
+from .svgd import SVGD
 from .deepensembles import deepensembles
-from .grad_aldi import grad_aldi
+from .grad_aldi import GradALDI
 from .gradfree_aldi import gradfree_aldi
-from .cbs import cbs
+from .cbs import CBS
 from .kfrflow import kfrflow
+from .loop import nak
 
 
 __all__ = [
-    "msip",
-    "msip_gs",
-    "msip_ni",
-    "msip_greedy",
-    "msip_geom_greedy",
-    "msip_adapt",
-    "svgd",
+    "nak",
+    "MSIP",
+    "MSIPGS",
+    "SVGD",
     "deepensembles",
-    "grad_aldi",
+    "GradALDI",
     "gradfree_aldi",
     "eks",
-    "cbs",
+    "CBS",
     "kfrflow",
 ]
