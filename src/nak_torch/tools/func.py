@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic, Optional, TypeVar
+import warnings
 import torch
 from .types import (
     BatchPtType,
@@ -20,6 +21,7 @@ class GeneralAdaptiveNAKAlgorithm(
     n_particles: int
     device: Optional[DeviceLike]
     dtype: Optional[torch.dtype]
+    verbose: bool
 
     def __init__(
         self,
@@ -27,11 +29,16 @@ class GeneralAdaptiveNAKAlgorithm(
         n_particles: int,
         device: Optional[DeviceLike],
         dtype: Optional[torch.dtype],
+        verbose: bool = True,
+        **kwargs,
     ):
         self.dim = dim
         self.n_particles = n_particles
         self.device = device
         self.dtype = dtype
+        self.verbose = verbose
+        if verbose:
+            warnings.warn(f"Unused kwargs:\n{kwargs}")
 
     @abstractmethod
     def initialize(

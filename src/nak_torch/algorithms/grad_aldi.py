@@ -52,8 +52,9 @@ class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None
         dtype: Optional[torch.dtype] = None,
         *_,
         rng: torch.Generator,
+        **kwargs,
     ):
-        super().__init__(dim, n_particles, device, dtype)
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
         self.rng = rng
 
     def initialize(self, init_particles, target, target_args):

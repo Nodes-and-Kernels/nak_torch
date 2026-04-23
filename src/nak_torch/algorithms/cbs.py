@@ -54,8 +54,9 @@ class CBS(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityEvaluator, CBSAlgorithmA
         *_,
         default_inverse_temp: float,
         rng: torch.Generator,
+        **kwargs,
     ):
-        super().__init__(dim, n_particles, device, dtype)
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
         self.default_inverse_temp = default_inverse_temp
         self.rng = rng
 

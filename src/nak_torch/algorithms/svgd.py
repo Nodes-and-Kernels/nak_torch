@@ -75,14 +75,15 @@ class SVGD(
         device: Optional[DeviceLike] = None,
         dtype: Optional[torch.dtype] = None,
         *_,
-        default_kernel_lengthscale: Optional[float] = None,
+        kernel_lengthscale: Optional[float] = None,
         kernel_lengthscale_quantile: Optional[float] = None,
         kernel_elem: Optional[KernelFunction] = None,
+        **kwargs,
     ):
-        super().__init__(dim, n_particles, device, dtype)
-        if default_kernel_lengthscale is None and kernel_lengthscale_quantile is None:
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
+        if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
             raise ValueError(
-                "Must provide either default_kernel_lengthscale or kernel_lengthscale_quantile"
+                "Must provide either kernel_lengthscale or kernel_lengthscale_quantile"
             )
         if kernel_lengthscale_quantile is not None and (
             kernel_lengthscale_quantile < 0 or kernel_lengthscale_quantile > 1
@@ -90,11 +91,11 @@ class SVGD(
             raise ValueError(
                 f"Expected kernel_lengthscale_quantile in [0,1], given {kernel_lengthscale_quantile}"
             )
-        if default_kernel_lengthscale is None:
-            default_kernel_lengthscale = 0.0
         if kernel_elem is None:
             kernel_elem = default_kernel_elem
-        self.default_kernel_lengthscale = default_kernel_lengthscale
+        self.default_kernel_lengthscale = (
+            0.0 if kernel_lengthscale is None else kernel_lengthscale
+        )
         self.kernel_lengthscale_quantile = kernel_lengthscale_quantile
         self.kernel_grad_val = create_svgd_kernel_grad_val(kernel_elem)
 

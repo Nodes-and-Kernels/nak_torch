@@ -55,8 +55,9 @@ class GeneralMSIPAlgorithm(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, Algorithm
         kernel_lengthscale: Optional[float] = None,
         kernel_lengthscale_quantile: Optional[float] = None,
         get_kernel_matrix: Optional[MatSelfKernelFunction] = None,
+        **kwargs,
     ):
-        super().__init__(dim, n_particles, device, dtype)
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
         self.kernel_diag_infl = kernel_diag_infl
         if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
             raise ValueError(

@@ -2,16 +2,17 @@
 import torch
 import matplotlib.pyplot as plt
 import nak_torch
+from nak_torch.tools.types import BatchGradLogDensityEvaluator
 from viz_tools import animate_trajectories_box
 from functions import himmelblau
-from nak_torch.algorithms import msip, svgd
+from nak_torch import nak
+from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from datetime import datetime
 from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
 
 save_gif = False
-algorithm_name = "msip_ni"
 function_name = "himmelblau"
 log_density = himmelblau(50.0)
 
@@ -23,36 +24,33 @@ torch.set_default_dtype(torch.float64)
 torch.manual_seed(19230182)
 init_particles = torch.randn((n_particles, 2)) + 8.0
 params = {
+    "n_steps": 100,
     "bounds": (-15, 15),
-    "kernel_length_scale": 0.2,
+    "kernel_lengthscale": 0.18,
     "init_particles": init_particles,
     "n_particles": n_particles,
     "dim": 2,
     "lr": 0.8,
     "kernel_diag_infl": 1e-5,
+    "verbose": False
 }
 
 # %%
-estimator_fredholm = MSIPFredholm(
+msip = MSIP(**params)
+svgd = SVGD(**params)
+
+# %%
+target_msip_fr = MSIPFredholm(
     gradient_decay=0.95,
-    log_dens_grad_val=torch.vmap(torch.func.grad_and_value(log_density))
+    log_dens_grad_val=torch.vmap(
+        torch.func.grad_and_value(log_density),
+        in_dims=(0,None)
+    )
 )
 
-trajectories_fr, trajectories_wts_fr = msip(
-    estimator_fredholm,
-    # n_particles=n_particles,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # lr=0.6,
-    # noise=0.05,          # currently unused, kept for compatibility
-    # kernel_length_scale=0.5,
-    # inner_tol=1e-4,      # equilibrium tolerance for a particle
-    # max_inner_steps=1000,  # max inner iterations per particle
-    # kernel_diag_infl=1e-8,
-    # seed=,
-    **params
-)
+trajectories_fr, trajectories_wts_fr = nak(target_msip_fr, msip, **params)
 
+# %%
 Ngrid = 1000
 x = y = torch.linspace(-5, 5, Ngrid)
 X,Y = torch.meshgrid(x,y,indexing="ij")
@@ -70,25 +68,11 @@ s = plt.scatter(
 
 plt.show()
 
+# %%
+target_svgd = BatchGradLogDensityEvaluator(log_density, is_grad=False, is_batched=False)
+trajectories_svgd = nak(target_svgd, svgd, **params)
 
 # %%
-trajectories_svgd = svgd(
-    log_density,
-    # n_particles=25,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # dim=2,
-    # bounds=(-20, 20),
-    # lr=0.6,
-    # noise=0.05,          # currently unused, kept for compatibility
-    # kernel_length_scale=0.5,
-    # inner_tol=1e-4,      # equilibrium tolerance for a particle
-    # max_inner_steps=1000,  # max inner iterations per particle
-    # kernel_diag_infl=1e-8,
-    # seed=,
-    **params
-)
-
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 pts_svgd = trajectories_svgd[-1]
 s = plt.scatter(
@@ -101,29 +85,18 @@ plt.show()
 
 
 # %%
-estimator = MSIPQuadGradientFree(
+target_msip_gf = MSIPQuadGradientFree(
     log_density,
     lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
 )
 params_gf = params.copy()
-params_gf['lr'] = 0.6
+params_gf['lr'] = 0.8
 n_particles = 25
-trajectories_gf,w = msip(
-    estimator,
-    # n_particles=n_particles,
-    # init_particles=init_particles,
-    n_steps=100,          # now interpreted as "epochs" (passes over all particles)
-    # dim=2,
-    # bounds=(-20, 20),
-    # lr=0.6,
-    # kernel_length_scale=0.5,
-    # kernel_diag_infl=1e-8,
-    seed=1,
-    **params_gf
-)
+trajectories_pts_gf,trajectories_wts_gf = nak(target_msip_gf, msip, **params_gf)
 
-pts_gf = trajectories_gf[-1]
-wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), default_kernel_matrix(pts_gf, params["kernel_length_scale"]))
+# %%
+pts_gf = trajectories_pts_gf[-1]
+wts_gf = trajectories_wts_gf[-1]
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
 

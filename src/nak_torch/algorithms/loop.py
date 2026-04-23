@@ -1,4 +1,5 @@
 from typing import Any, Optional
+import warnings
 
 from tqdm import tqdm
 import numpy as np
@@ -28,12 +29,14 @@ def nak(
     bounds: Optional[tuple[float, float]] = None,
     keep_all: bool = True,
     target_args: Any = None,
-    verbose: bool = False,
+    **kwargs,
 ) -> Tensor | tuple[Tensor, Tensor]:
     r"""
     TODO: Document
     """
-
+    verbose = algorithm.verbose
+    if verbose:
+        warnings.warn(f"Discarding kwargs {kwargs}")
     if n_steps < 0:
         raise ValueError("Expected positive number of steps.")
 
@@ -70,7 +73,7 @@ def nak(
                 traj_wts[idx + 1].copy_(particle_wts)
 
         particles, particle_wts, algorithm_args = algorithm.step(
-            lr, particles, algorithm_args, target, target_args
+            lr, particles, target, algorithm_args, target_args
         )
 
         if bounds is not None:
