@@ -5,27 +5,39 @@ from .types import (
     BatchPtType,
     BatchType,
     DeviceLike,
-    BatchDensityEvaluator,
+    BatchTargetEvaluator,
 )
 
-BatchDensityEvaluatorT = TypeVar("BatchDensityEvaluatorT", bound=BatchDensityEvaluator)
+BatchTargetEvaluatorT = TypeVar("BatchTargetEvaluatorT", bound=BatchTargetEvaluator)
 AlgorithmArgsT = TypeVar("AlgorithmArgsT")
 WeightT = TypeVar("WeightT", bound=Optional[BatchType])
 
 
 class GeneralAdaptiveNAKAlgorithm(
-    ABC, Generic[BatchDensityEvaluatorT, WeightT, AlgorithmArgsT]
+    ABC, Generic[BatchTargetEvaluatorT, WeightT, AlgorithmArgsT]
 ):
     dim: int
     n_particles: int
     device: Optional[DeviceLike]
     dtype: Optional[torch.dtype]
 
+    def __init__(
+        self,
+        dim: int,
+        n_particles: int,
+        device: Optional[DeviceLike],
+        dtype: Optional[torch.dtype],
+    ):
+        self.dim = dim
+        self.n_particles = n_particles
+        self.device = device
+        self.dtype = dtype
+
     @abstractmethod
     def initialize(
         self,
         init_particles: BatchPtType,
-        target: BatchDensityEvaluatorT,
+        target: BatchTargetEvaluatorT,
         target_args: Any,
     ) -> tuple[WeightT, AlgorithmArgsT]:
         pass
@@ -35,7 +47,7 @@ class GeneralAdaptiveNAKAlgorithm(
         self,
         lr: float,
         particles: BatchPtType,
-        target: BatchDensityEvaluatorT,
+        target: BatchTargetEvaluatorT,
         algorithm_args: AlgorithmArgsT,
         target_args: Any,
     ) -> tuple[BatchPtType, WeightT, AlgorithmArgsT]:
@@ -48,7 +60,7 @@ class GeneralAdaptiveNAKAlgorithm(
 
 
 class UnweightedAdaptiveNAKAlgorithm(
-    GeneralAdaptiveNAKAlgorithm[BatchDensityEvaluatorT, None, AlgorithmArgsT]
+    GeneralAdaptiveNAKAlgorithm[BatchTargetEvaluatorT, None, AlgorithmArgsT]
 ):
     @classmethod
     def is_weighted(cls) -> bool:
@@ -56,7 +68,7 @@ class UnweightedAdaptiveNAKAlgorithm(
 
 
 class WeightedAdaptiveNAKAlgorithm(
-    GeneralAdaptiveNAKAlgorithm[BatchDensityEvaluatorT, BatchType, AlgorithmArgsT]
+    GeneralAdaptiveNAKAlgorithm[BatchTargetEvaluatorT, BatchType, AlgorithmArgsT]
 ):
     @classmethod
     def is_weighted(cls) -> bool:

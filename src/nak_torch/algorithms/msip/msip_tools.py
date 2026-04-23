@@ -11,6 +11,7 @@ from .estimators import MSIPEstimator, MSIPFredholm
 
 from nak_torch.tools.types import (
     BatchPtType,
+    DeviceLike,
     KernelMatrixType,
     LogDensity,
     BatchLogDensity,
@@ -45,12 +46,17 @@ class GeneralMSIPAlgorithm(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, Algorithm
 
     def __init__(
         self,
+        dim: int,
+        n_particles: int,
+        device: Optional[DeviceLike] = None,
+        dtype: Optional[torch.dtype] = None,
         *_,
         kernel_diag_infl: Optional[float] = None,
         kernel_lengthscale: Optional[float] = None,
         kernel_lengthscale_quantile: Optional[float] = None,
         get_kernel_matrix: Optional[MatSelfKernelFunction] = None,
     ):
+        super().__init__(dim, n_particles, device, dtype)
         self.kernel_diag_infl = kernel_diag_infl
         if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
             raise ValueError(

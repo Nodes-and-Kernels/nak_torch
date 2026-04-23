@@ -18,15 +18,19 @@ BatchQuadruleWtType = Float[Tensor, "batch quad"]
 KernelMatrixType = Float[Tensor, "batch batch"]
 GradKernelMatrixType = Float[Tensor, "batch batch d"]
 
+
 DensityGradValOutput = tuple[BatchPtType, BatchType]
 MSIPEstimatorOutput = tuple[BatchType, BatchPtType]
 
 KernelFunction = Callable[[PtType, PtType, float], Float]
+BatchKernelGradValFunction = Callable[
+    [BatchPtType, BatchPtType, Any], tuple[BatchPtType, Float]
+]
 
 EvaluatorOutputT = TypeVar("EvaluatorOutputT")
 
 
-class BatchDensityEvaluator(ABC, Generic[EvaluatorOutputT]):
+class BatchTargetEvaluator(ABC, Generic[EvaluatorOutputT]):
     @abstractmethod
     def __call__(
         self, particles: BatchPtType, evaluator_args, target_args
@@ -62,6 +66,46 @@ ForwardModel = Callable[[Float[Tensor, " dim"], Any], Float[Tensor, " obs"]]
 BatchForwardModel = Callable[
     [Float[Tensor, "batch dim"], Any], Float[Tensor, "batch obs"]
 ]
+
+
+class BatchLogDensityEvaluator(BatchTargetEvaluator[BatchType]):
+    log_density: BatchLogDensity
+
+    def __init__(self, log_density: LogDensity | BatchLogDensity, is_batched: bool):
+        if not is_batched:
+            log_density = torch.vmap(log_density, in_dims=(0, None))
+        self.log_density = log_density
+
+    def __call__(self, pts, _, target_args):
+        return self.log_density(pts, target_args)
+
+
+class BatchGradLogDensityEvaluator(BatchTargetEvaluator[BatchPtType]):
+    grad_log_density: BatchGradLogDensity
+
+    def __init__(
+        self,
+        log_density_or_grad: LogDensity
+        | BatchLogDensity
+        | GradLogDensity
+        | BatchGradLogDensity,
+        is_grad: bool,
+        is_batched: bool,
+    ):
+        if is_batched:
+            if is_grad:
+                self.grad_log_density = log_density_or_grad
+            else:
+                self.grad_log_density = torch.func.grad(
+                    lambda x, args: log_density_or_grad(x, args).sum()
+                )
+        else:
+            if not is_grad:
+                log_density_or_grad = torch.func.grad(log_density_or_grad)
+            self.grad_log_density = torch.vmap(log_density_or_grad, in_dims=(0, None))
+
+    def __call__(self, pts, _, target_args):
+        return self.grad_log_density(pts, target_args)
 
 
 @dataclass

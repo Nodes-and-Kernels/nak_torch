@@ -6,7 +6,7 @@ from nak_torch.tools.types import (
     BatchLogDensityGradVal,
     BatchLogDensity,
     BatchQuadratureRule,
-    BatchDensityEvaluator,
+    BatchTargetEvaluator,
 )
 from jaxtyping import Float
 from torch import Tensor
@@ -14,7 +14,7 @@ from torch import Tensor
 __all__ = ["MSIPFredholm", "MSIPQuadGradientFree", "MSIPQuadGradientInformed"]
 
 
-class MSIPEstimator(BatchDensityEvaluator[MSIPEstimatorOutput]):
+class MSIPEstimator(BatchTargetEvaluator[MSIPEstimatorOutput]):
     @abstractmethod
     def __call__(self, particles, evaluator_args, target_args) -> MSIPEstimatorOutput:
         r"""

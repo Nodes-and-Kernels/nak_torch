@@ -7,7 +7,7 @@ from torch import Tensor
 
 from nak_torch.tools.util import initialize_particles
 from nak_torch.tools.types import (
-    BatchDensityEvaluator,
+    BatchTargetEvaluator,
 )
 
 from nak_torch.tools.func import (
@@ -16,7 +16,7 @@ from nak_torch.tools.func import (
 
 
 def nak(
-    target: BatchDensityEvaluator,
+    target: BatchTargetEvaluator,
     algorithm: GeneralAdaptiveNAKAlgorithm,
     n_particles: int,
     n_steps: int,
