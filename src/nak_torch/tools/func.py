@@ -32,7 +32,10 @@ class GeneralAdaptiveNAKAlgorithm(ABC, Generic[NAKTargetT, WeightT, AlgorithmArg
     ):
         self.dim = dim
         self.n_particles = n_particles
-        self.device = device
+        if device is None:
+            self.device = torch.get_default_device()
+        else:
+            self.device = device
         self.dtype = dtype
         self.verbose = verbose
         if verbose and len(kwargs) > 0:

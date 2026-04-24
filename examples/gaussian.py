@@ -8,8 +8,8 @@ import torch
 from torch import Tensor
 
 import nak_torch
-from nak_torch.algorithms import eks, kfrflow
-from nak_torch.algorithms import SVGD, MSIP, MSIPGS, GradALDI, CBS, GradFreeALDI
+from nak_torch.algorithms import kfrflow
+from nak_torch.algorithms import SVGD, MSIP, MSIPGS, GradALDI, CBS, GradFreeALDI, EKS
 from tqdm import tqdm
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientInformed, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
@@ -101,17 +101,21 @@ samps = torch.randn(10000, 2) @ cov_post_sqrt + mean_post
 
 # %%
 n_steps, n_particles = 1000, 500
-lr = 0.1
+lr = 1e-2
 bounds = (-100., 100.)
-init_particles = torch.randn((n_particles, 2)) / \
+rng = torch.Generator(device=torch.get_default_device())
+rng.manual_seed(0)
+
+init_particles = torch.randn((n_particles, 2), generator=rng) / \
     model.prior_precision + model.prior_mean
 
 
 # %%
-trajectories_eks = eks(
-    model, n_particles=n_particles,
-    n_steps=n_steps, dim=2, lr=lr,
-    init_particles=init_particles, keep_all=False,
+eks = EKS(dim=2, n_particles=n_particles, rng_or_seed=rng)
+trajectories_eks = nak_torch.nak(
+    model, eks, n_steps=n_steps, lr=lr,
+    rng_or_seed=rng, target_args=None, bounds=bounds,
+    init_particles=init_particles
 )
 
 # %%
@@ -160,10 +164,6 @@ trajectories_eks = eks(
 
 
 # %%
-rng = torch.Generator()
-rng.manual_seed(0)
-
-# %%
 grad_aldi = GradALDI(dim=2, n_particles=n_particles, rng = rng)
 grad_aldi_target = BatchGradLogDensityEvaluator(post_log_dens, is_grad=False, is_batched=True)
 trajectories_galdi = nak_torch.nak(grad_aldi_target, grad_aldi,
@@ -187,17 +187,12 @@ trajectories_gfaldi = nak_torch.nak(model, gf_aldi,
 
 # %%
 cbs_target = BatchLogDensityEvaluator(post_log_dens, is_batched=True)
-cbs = CBS(dim=2, n_particles=n_particles, default_inverse_temp=0.95, rng=rng)
+cbs = CBS(dim=2, n_particles=n_particles, default_inverse_temp=0.5, rng=rng)
 trajectories_cbs = nak_torch.nak(
-    cbs_target, cbs, n_steps, lr,
+    cbs_target, cbs, 5000, lr=lr,
     rng_or_seed=rng, init_particles=init_particles,
-    target_args=None, bounds = bounds
+    target_args=None, bounds=bounds
 )
-# trajectories_cbs = cbs(
-#     post_log_dens, n_particles, n_steps, inverse_temp=0.95, dim=2,
-#     lr=lr, init_particles=init_particles,
-#     keep_all=True
-# )
 
 # %%
 kernel_lengthscale = 0.15
@@ -219,7 +214,8 @@ msip_fredholm_target = MSIPFredholm(
     post_log_dens_grad_val_batch
 )
 
-# %%
+msip.kernel_lengthscale_quantile = 0.01
+
 trajectories_pts_msip_fr, trajectories_wts_msip_fr = nak_torch.nak(
     msip_fredholm_target, msip, n_steps_msip, lr_msip,
     rng_or_seed=rng, init_particles=init_particles[:msip.n_particles],
@@ -246,9 +242,11 @@ msip_quadgrad_target = MSIPQuadGradientInformed(
     gradient_decay
 )
 
+msip.kernel_lengthscale_quantile = 0.5
+msip.kernel_diag_infl = 1e-1
 
 trajectories_pts_msip_qg, trajectories_wts_msip_qg = nak_torch.nak(
-    msip_quadgrad_target, msip, n_steps_msip, lr_msip,
+    msip_quadgrad_target, msip, n_steps_msip, 1e-1,
     rng_or_seed=rng, init_particles=init_particles[:msip.n_particles], target_args=model,
     keep_all=False, bounds=bounds
 )
@@ -257,20 +255,21 @@ trajectories_pts_msip_qg, trajectories_wts_msip_qg = nak_torch.nak(
 msip_quadgf_target = MSIPQuadGradientFree(
     post_log_dens, partial(spherical_quad, N_spherical=5, N_radial=4)
 )
+msip.kernel_lengthscale_quantile = 0.05
 
 trajectories_pts_msip_qgf, trajectories_wts_msip_qgf = nak_torch.nak(
-    msip_quadgf_target, msip, 100, 8e-1,
+    msip_quadgf_target, msip, n_steps=n_steps_msip, lr=1e-1,
     rng_or_seed=rng, init_particles=init_particles[:msip.n_particles], target_args=model,
     keep_all=False, bounds=bounds
 )
 
 
 # %%
-# pts_eks = trajectories_eks[-1]
+pts_eks = trajectories_eks[-1]
 # pts_kfr = particles
-# pts_galdi = trajectories_galdi[-1]
+pts_galdi = trajectories_galdi[-1]
 pts_gfaldi = trajectories_gfaldi[-1]
-# pts_cbs = trajectories_cbs[-1]
+pts_cbs = trajectories_cbs[-1]
 idx_msip = -1
 alpha_msip = 2/math.sqrt(n_particles_msip)
 pts_msip = trajectories_pts_msip_fr[idx_msip]
@@ -296,13 +295,13 @@ ax.contour(X, Y, post_log_dens(grid_pts, model).reshape(Ngrid, Ngrid), levels=10
 handles = []
 # ax.scatter(samps[:, 0], samps[:, 1], alpha=0.025, label="Truth")
 # ax.scatter(pts_galdi[:, 0], pts_galdi[:, 1], alpha=0.2, label="Grad-ALDI")
-ax.scatter(pts_gfaldi[:, 0], pts_gfaldi[:, 1],
-           alpha=0.2, label="GradFree-ALDI")
+# ax.scatter(pts_gfaldi[:, 0], pts_gfaldi[:, 1],
+#            alpha=0.2, label="GradFree-ALDI")
 # ax.scatter(pts_kfr[:,0], pts_kfr[:,1], label="KFR")
 # ax.scatter(pts_eks[:, 0], pts_eks[:, 1], alpha=0.1, label="EKS")
 # ax.scatter(pts_cbs[:, 0], pts_cbs[:, 1], alpha=0.1, label="CBS")
-# ax.scatter(pts_msip[:, 0], pts_msip[:, 1], alpha=alpha_msip, label="MSIP")
-# handles.append(ax.scatter(pts_msip_qg[:, 0], pts_msip_qg[:, 1], alpha=alpha_msip, label="MSIP-QuadGrad"))
+ax.scatter(pts_msip[:, 0], pts_msip[:, 1], alpha=alpha_msip, label="MSIP")
+# ax.scatter(pts_msip_qg[:, 0], pts_msip_qg[:, 1], alpha=alpha_msip, label="MSIP-QuadGrad")
 # ax.scatter(pts_msip_qgf[:, 0], pts_msip_qgf[:, 1],
 #                s = 50*wts_msip_qgf.abs()/wts_msip_qgf.max(), alpha=alpha_msip, label="MSIP-QuadGradFree")
 # plt.colorbar(s)
@@ -311,6 +310,8 @@ ax.legend()
 # ax.set_xlim(xgrid.min(), xgrid.max())
 # ax.set_ylim(ygrid.min(), ygrid.max())
 plt.show()
+
+# %%
 
 # %%
 print(f"""

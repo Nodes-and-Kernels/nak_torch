@@ -36,7 +36,7 @@ def gradfree_aldi_step(
     prior_precision: CovType,
     true_observation: Float[Tensor, " obs"],
     rng: torch.Generator,
-) -> tuple[BatchPtType, Float[Tensor, "dim dim"]]:
+) -> tuple[BatchPtType, BatchPtType]:
 
     N_batch, dim = particles.shape
     particle_mean = particles.mean(dim=0, keepdim=True)
@@ -137,4 +137,4 @@ class GradFreeALDI(UnweightedAdaptiveNAKAlgorithm[GaussianModel, None]):
         new_particles = (
             particles_diff.mul_(lr).add_(particles).add_(particles_noise.mul_(sqrt_lr))
         )
-        return new_particles, None, None
+        return new_particles, None, algorithm_args

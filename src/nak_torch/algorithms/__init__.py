@@ -7,7 +7,7 @@
 # Ayoub Belhadji
 # 05/12/2025
 
-from .eks import eks
+from .eks import EKS
 from .msip import MSIP, MSIPGS
 from .svgd import SVGD
 from .deepensembles import deepensembles
@@ -27,7 +27,7 @@ __all__ = [
     "GradALDI",
     # "gradfree_aldi",
     "GradFreeALDI",
-    "eks",
+    "EKS",
     "CBS",
     "kfrflow",
 ]
