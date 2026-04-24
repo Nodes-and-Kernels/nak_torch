@@ -20,7 +20,7 @@ class MSIP(GeneralMSIPAlgorithm[MSIPAlgorithmArgs]):
 
     def step(self, lr, particles, target, algorithm_args, target_args):
         kernel_lengthscale, kernel_matrix, estimator_output = astuple(algorithm_args)
-        kernel_matrix_inverse = torch.linalg.pinv(kernel_matrix)
+        kernel_matrix_inverse = torch.linalg.pinv(kernel_matrix, hermitian=True)
 
         # Update the particles
         particles_diff = msip_map(
@@ -29,7 +29,7 @@ class MSIP(GeneralMSIPAlgorithm[MSIPAlgorithmArgs]):
             kernel_matrix_inverse,
             output_idx=None,
         )
-        new_particles = particles.mul(1 - lr).add_(particles_diff.mul_(lr))
+        new_particles = particles_diff.mul_(lr).add_(particles.mul(1 - lr))
 
         # Update the parameters
         kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)

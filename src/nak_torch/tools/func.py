@@ -6,17 +6,15 @@ from .types import (
     BatchPtType,
     BatchType,
     DeviceLike,
-    BatchTargetEvaluator,
+    NAKTarget,
 )
 
-BatchTargetEvaluatorT = TypeVar("BatchTargetEvaluatorT", bound=BatchTargetEvaluator)
+NAKTargetT = TypeVar("NAKTargetT", bound=NAKTarget)
 AlgorithmArgsT = TypeVar("AlgorithmArgsT")
 WeightT = TypeVar("WeightT", bound=Optional[BatchType])
 
 
-class GeneralAdaptiveNAKAlgorithm(
-    ABC, Generic[BatchTargetEvaluatorT, WeightT, AlgorithmArgsT]
-):
+class GeneralAdaptiveNAKAlgorithm(ABC, Generic[NAKTargetT, WeightT, AlgorithmArgsT]):
     dim: int
     n_particles: int
     device: Optional[DeviceLike]
@@ -44,7 +42,7 @@ class GeneralAdaptiveNAKAlgorithm(
     def initialize(
         self,
         init_particles: BatchPtType,
-        target: BatchTargetEvaluatorT,
+        target: NAKTargetT,
         target_args: Any,
     ) -> tuple[WeightT, AlgorithmArgsT]:
         pass
@@ -54,7 +52,7 @@ class GeneralAdaptiveNAKAlgorithm(
         self,
         lr: float,
         particles: BatchPtType,
-        target: BatchTargetEvaluatorT,
+        target: NAKTargetT,
         algorithm_args: AlgorithmArgsT,
         target_args: Any,
     ) -> tuple[BatchPtType, WeightT, AlgorithmArgsT]:
@@ -67,7 +65,7 @@ class GeneralAdaptiveNAKAlgorithm(
 
 
 class UnweightedAdaptiveNAKAlgorithm(
-    GeneralAdaptiveNAKAlgorithm[BatchTargetEvaluatorT, None, AlgorithmArgsT]
+    GeneralAdaptiveNAKAlgorithm[NAKTargetT, None, AlgorithmArgsT]
 ):
     @classmethod
     def is_weighted(cls) -> bool:
@@ -75,7 +73,7 @@ class UnweightedAdaptiveNAKAlgorithm(
 
 
 class WeightedAdaptiveNAKAlgorithm(
-    GeneralAdaptiveNAKAlgorithm[BatchTargetEvaluatorT, BatchType, AlgorithmArgsT]
+    GeneralAdaptiveNAKAlgorithm[NAKTargetT, BatchType, AlgorithmArgsT]
 ):
     @classmethod
     def is_weighted(cls) -> bool:

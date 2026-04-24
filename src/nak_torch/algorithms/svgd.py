@@ -105,7 +105,7 @@ class SVGD(
 
     def step(self, lr, particles, target, algorithm_args, target_args):
         (kernel_lengthscale,) = astuple(algorithm_args)
-        grad_log_dens_eval = target(particles, None, target_args)
+        grad_log_dens_eval = target(particles, target_args)
         particles_diff = svgd_step(
             self.kernel_grad_val, particles, grad_log_dens_eval, kernel_lengthscale
         )

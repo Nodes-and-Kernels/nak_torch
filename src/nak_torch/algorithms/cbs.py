@@ -69,7 +69,7 @@ class CBS(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityEvaluator, CBSAlgorithmA
     def step(self, lr, particles, target, algorithm_args, target_args):
         inverse_temp, motion_scaling_sq_div_lr = astuple(algorithm_args)
         motion_scaling_sq = motion_scaling_sq_div_lr * lr
-        log_dens_eval = target(particles, None, target_args)
+        log_dens_eval = target(particles, target_args)
         particles_diff, particles_noise = cbs_step(
             particles, log_dens_eval, inverse_temp, motion_scaling_sq, self.rng
         )

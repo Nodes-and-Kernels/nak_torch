@@ -6,7 +6,7 @@ from nak_torch.tools.types import (
     BatchLogDensityGradVal,
     BatchLogDensity,
     BatchQuadratureRule,
-    BatchTargetEvaluator,
+    NAKTarget,
 )
 from jaxtyping import Float
 from torch import Tensor
@@ -14,7 +14,7 @@ from torch import Tensor
 __all__ = ["MSIPFredholm", "MSIPQuadGradientFree", "MSIPQuadGradientInformed"]
 
 
-class MSIPEstimator(BatchTargetEvaluator[MSIPEstimatorOutput]):
+class MSIPEstimator(NAKTarget[MSIPEstimatorOutput]):
     @abstractmethod
     def __call__(self, particles, evaluator_args, target_args) -> MSIPEstimatorOutput:
         r"""
@@ -24,7 +24,7 @@ class MSIPEstimator(BatchTargetEvaluator[MSIPEstimatorOutput]):
         \sigma^2 \nabla \log v_0(y) = \frac{v_1(y)}{v_0(y)} - y.
         $$
         """
-        pass
+        ...
 
 
 class MSIPFredholm(MSIPEstimator):
@@ -71,6 +71,7 @@ class MSIPQuadGradientFree(MSIPEstimator):
         log_dens_evals = self.log_dens(
             particle_quad_pts.reshape(-1, dim), target_args
         ).reshape(n_particles, -1)
+
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
             quad_pts, quad_wts, log_dens_evals
         )

@@ -8,7 +8,7 @@ from torch import Tensor
 
 from nak_torch.tools.util import initialize_particles
 from nak_torch.tools.types import (
-    BatchTargetEvaluator,
+    NAKTarget,
 )
 
 from nak_torch.tools.func import (
@@ -19,7 +19,7 @@ __all__ = ["nak"]
 
 
 def nak(
-    target: BatchTargetEvaluator,
+    target: NAKTarget,
     algorithm: GeneralAdaptiveNAKAlgorithm,
     n_steps: int,
     lr: float,
@@ -71,10 +71,10 @@ def nak(
         trajectories = torch.empty(())
         traj_wts = torch.empty(())
 
-    for idx in tqdm(range(n_steps), disable=not verbose):
+    for idx in tqdm(range(n_steps - 1), disable=not verbose):
         if keep_all:
             trajectories[idx + 1].copy_(particles)
-            if algorithm.is_weighted() and keep_all:
+            if algorithm.is_weighted():
                 traj_wts[idx + 1].copy_(particle_wts)
 
         particles, particle_wts, algorithm_args = algorithm.step(
@@ -84,7 +84,11 @@ def nak(
         if bounds is not None:
             particles.clamp_(bounds[0], bounds[1])
 
-    if not keep_all:
+    if keep_all:
+        trajectories[-1].copy_(particles)
+        if algorithm.is_weighted():
+            traj_wts[-1].copy_(particle_wts)
+    else:
         trajectories = particles.unsqueeze_(0)
         if algorithm.is_weighted():
             traj_wts = particle_wts.unsqueeze_(0)

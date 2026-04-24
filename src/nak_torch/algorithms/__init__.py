@@ -12,7 +12,7 @@ from .msip import MSIP, MSIPGS
 from .svgd import SVGD
 from .deepensembles import deepensembles
 from .grad_aldi import GradALDI
-from .gradfree_aldi import gradfree_aldi
+from .gradfree_aldi import GradFreeALDI
 from .cbs import CBS
 from .kfrflow import kfrflow
 from .loop import nak
@@ -25,7 +25,8 @@ __all__ = [
     "SVGD",
     "deepensembles",
     "GradALDI",
-    "gradfree_aldi",
+    # "gradfree_aldi",
+    "GradFreeALDI",
     "eks",
     "CBS",
     "kfrflow",

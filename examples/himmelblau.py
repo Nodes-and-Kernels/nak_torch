@@ -26,11 +26,11 @@ init_particles = torch.randn((n_particles, 2)) + 8.0
 params = {
     "n_steps": 100,
     "bounds": (-15, 15),
-    "kernel_lengthscale": 0.18,
+    "kernel_lengthscale": 0.15,
     "init_particles": init_particles,
     "n_particles": n_particles,
     "dim": 2,
-    "lr": 0.8,
+    "lr": 0.6,
     "kernel_diag_infl": 1e-5,
     "verbose": False
 }
@@ -102,7 +102,7 @@ plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
 
 # %%
 batch_log_dens = torch.vmap(log_density)
-batch_grad_log_dens = torch.vmap(torch.func.grad(log_density))
+batch_grad_log_dens = torch.vmap(torch.func.grad(log_density), in_dims=(0,None))
 def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
     return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
 ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
@@ -130,8 +130,8 @@ titles = ["Initialization", "SVGD", "MSIP-1", "MSIP-GF"]
 title_weights = [None, None, 'heavy', 'heavy']
 for (ax, title, pt, wt, title_wt) in zip(axs, titles, pt_list, wt_list, title_weights):
     ax.set_axis_off()
-    ax.set_xlim(g_min, g_max)
-    ax.set_ylim(g_min, 1.05*g_max)
+    # ax.set_xlim(g_min, g_max)
+    # ax.set_ylim(g_min, 1.05*g_max)
     ax.set_title(title, fontweight=title_wt, size=20)
     ax.contourf(X[:,40:],Y[:,40:],Z[:,40:], levels=20, cmap="Grays")
     s = 25 * (1. if wt is None else ((wt.abs()/wt.abs().max())).sqrt())

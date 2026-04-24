@@ -143,6 +143,7 @@ class KernelSteinDiscrepancy(Metric):
         self,
         grad_log_dens: AnyLogDensGrad,
         kernel_length_scale: float,
+        target_args=None,
         kernel_elem=None,
         is_grad_vectorized: bool = True,
         use_compiled: bool = False,
@@ -153,6 +154,7 @@ class KernelSteinDiscrepancy(Metric):
         self.stein_kernel_mat = stein_kernel_mat_factory(
             grad_log_dens,
             kernel_elem,
+            target_args=target_args,
             is_grad_vectorized=is_grad_vectorized,
             use_compiled=use_compiled,
         )

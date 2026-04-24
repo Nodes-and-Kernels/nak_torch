@@ -10,6 +10,7 @@ DeviceLike = str | torch.device | int
 
 BatchType = Float[Tensor, "batch"]
 PtType = Float[Tensor, " d"]
+CovType = Float[Tensor, "d d"]
 BatchPtType = Float[Tensor, "batch d"]
 QuadrulePtType = Float[Tensor, "quad d"]
 QuadruleWtType = Float[Tensor, "quad"]
@@ -30,11 +31,12 @@ BatchKernelGradValFunction = Callable[
 EvaluatorOutputT = TypeVar("EvaluatorOutputT")
 
 
-class BatchTargetEvaluator(ABC, Generic[EvaluatorOutputT]):
+class NAKTarget(ABC, Generic[EvaluatorOutputT]): ...
+
+
+class BatchTargetEvaluator(NAKTarget[EvaluatorOutputT]):
     @abstractmethod
-    def __call__(
-        self, particles: BatchPtType, evaluator_args, target_args
-    ) -> EvaluatorOutputT:
+    def __call__(self, particles: BatchPtType, target_args) -> EvaluatorOutputT:
         pass
 
 
@@ -76,7 +78,7 @@ class BatchLogDensityEvaluator(BatchTargetEvaluator[BatchType]):
             log_density = torch.vmap(log_density, in_dims=(0, None))
         self.log_density = log_density
 
-    def __call__(self, pts, _, target_args):
+    def __call__(self, pts, target_args):
         return self.log_density(pts, target_args)
 
 
@@ -104,12 +106,12 @@ class BatchGradLogDensityEvaluator(BatchTargetEvaluator[BatchPtType]):
                 log_density_or_grad = torch.func.grad(log_density_or_grad)
             self.grad_log_density = torch.vmap(log_density_or_grad, in_dims=(0, None))
 
-    def __call__(self, pts, _, target_args):
+    def __call__(self, pts, target_args):
         return self.grad_log_density(pts, target_args)
 
 
 @dataclass
-class GaussianModel:
+class GaussianModel(NAKTarget):
     forward_model: BatchForwardModel
     likelihood_precision: float | Float[Tensor, "obs obs"]
     prior_precision: float | Float[Tensor, "dim dim"]

@@ -61,7 +61,7 @@ class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None
         return None, None
 
     def step(self, lr, particles, target, algorithm_args, target_args):
-        grad_log_dens_evals = target(particles, None, target_args)
+        grad_log_dens_evals = target(particles, target_args)
         particles_diff, particles_noise = grad_aldi_step(
             particles, grad_log_dens_evals, self.rng
         )
