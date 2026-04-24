@@ -21,24 +21,34 @@ torch.set_default_dtype(torch.float64)
 torch.manual_seed(1023921)
 
 
-# ── Target: 3-component GMM ───────────────────────────────────────────────────
-gmm_weights = torch.tensor([1 / 3, 1 / 3, 1 / 3])
+# ── Target: 5-component GMM ───────────────────────────────────────────────────
+gmm_weights = torch.tensor([1/5] * 5)
+
 gmm_means = torch.stack([
-    torch.tensor([6.2, -6.0]),
+    torch.tensor([ 6.2, -6.0]),
     torch.tensor([-4.0,  5.0]),
-    torch.tensor([7.0,   3.0]),
+    torch.tensor([ 7.0,  3.0]),
+    torch.tensor([-6.5, -4.5]),
+    torch.tensor([ 1.0,  7.0]),
 ])
-#gmm_covs       = torch.stack([torch.eye(2) / 5.0] * 3)
+
 gmm_covs = torch.stack([
-    0.5*torch.tensor([[1.5,  0.1],
-                  [0.1,  0.5]]),
+    0.5 * torch.tensor([[1.5,  0.1],
+                        [0.1,  0.5]]),
 
-    0.5*torch.tensor([[2.0, -0.6],
-                  [-0.6, 0.5]]),
+    0.5 * torch.tensor([[2.0, -0.6],
+                        [-0.6, 0.5]]),
 
-    0.5*torch.tensor([[0.7,  0.4],
-                  [0.4,  1.2]])
+    0.5 * torch.tensor([[0.7,  0.4],
+                        [0.4,  1.2]]),
+
+    0.5 * torch.tensor([[1.3, -0.5],
+                        [-0.5, 0.9]]),
+
+    0.5 * torch.tensor([[0.6,  0.35],
+                        [0.35, 1.6]]),
 ])
+
 gmm_precisions = torch.linalg.inv(gmm_covs)
 
 
@@ -72,7 +82,7 @@ model = nak_torch.GaussianModel(
 
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
 n_steps     = 500
-n_particles = 5
+n_particles = 50
 lr          = 0.5
 lr_msip     = 50e-2
 
