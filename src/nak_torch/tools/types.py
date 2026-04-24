@@ -143,16 +143,13 @@ class GaussianModel(NAKTarget):
         def log_dens(pts: BatchPtType, aux_args: Any) -> BatchType:
             model_eval = self.forward_model(pts, aux_args)
             obs_error = model_eval.sub_(self.true_obs)
-            like_term = torch.square(torch.linalg.norm(obs_error, dim=-1)).mul_(
-                self.likelihood_precision
-            )
-            like_term.mul_(self.likelihood_precision)
-            prior_diff = pts
+            like_sq_norm = obs_error.square().sum(dim=-1)
+            like_term = like_sq_norm.mul_(self.likelihood_precision)
+            prior_diff = pts.clone()
             if self.prior_mean != 0.0:
-                prior_diff -= self.prior_mean
-            prior_term = torch.square(torch.linalg.norm(prior_diff, dim=-1)).mul_(
-                self.prior_precision
-            )
+                prior_diff.sub_(self.prior_mean)
+            prior_sq_norm = prior_diff.square().sum(dim=-1)
+            prior_term = prior_sq_norm.mul_(self.prior_precision)
             return -0.5 * (prior_term + like_term)
 
         return torch.compile(log_dens) if use_compiled else log_dens
