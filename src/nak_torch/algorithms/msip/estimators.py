@@ -38,10 +38,11 @@ class MSIPFredholm(MSIPEstimator):
         self.gradient_decay = gradient_decay
         self.log_dens_grad_val = log_dens_grad_val
 
-    def __call__(self, particles, kernel_length_scale, target_args):
-        grads, v0 = self.log_dens_grad_val(particles, target_args)
-        sigma_sq_log_v0 = grads.mul_(kernel_length_scale * self.gradient_decay)
-        return v0, sigma_sq_log_v0
+    def __call__(self, particles, kernel_lengthscale, target_args):
+        grads, log_v0 = self.log_dens_grad_val(particles, target_args)
+        sigma_sq = kernel_lengthscale * kernel_lengthscale
+        sigma_sq_log_v0 = grads.mul_(sigma_sq * self.gradient_decay)
+        return log_v0, sigma_sq_log_v0
 
 
 vmap_recursive_weighted_average_alpha_v = torch.vmap(
@@ -93,23 +94,28 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         self.quadrature, self.gradient_decay = quadrature, gradient_decay
         self.log_dens_grad_val = log_dens_grad_val
 
-    def __call__(self, particles, kernel_length_scale, target_args):
-        quad_pts, quad_wts = self.quadrature(particles.shape[0])
-        particle_quad_pts = quad_pts.mul_(kernel_length_scale).add(
+    def __call__(self, particles, kernel_lengthscale, target_args):
+        n_particles, dim = particles.shape
+        quad_pts, quad_wts = self.quadrature(n_particles)
+        sigma_sq = kernel_lengthscale * kernel_lengthscale
+        quad_pts_correct_var = quad_pts.mul(kernel_lengthscale)
+        particle_quad_pts = quad_pts_correct_var.add(
             particles.unsqueeze(1)
         )  # (N_part, N_quad, dim)
+
         log_dens_grads, log_dens_evals = self.log_dens_grad_val(
-            particle_quad_pts.reshape(-1, particles.shape[1]), target_args
+            particle_quad_pts.reshape(-1, dim), target_args
         )
 
         log_dens_grads = log_dens_grads.reshape_as(particle_quad_pts)
-        log_dens_evals = log_dens_evals.reshape(particle_quad_pts.shape[:-1])
+        log_dens_evals = log_dens_evals.reshape(n_particles, -1)
 
-        v1_integrand = quad_pts.mul_(1 - self.gradient_decay).add_(
-            log_dens_grads.mul_(self.gradient_decay * kernel_length_scale)
-        )  # Note that previously multiplied particle_quad_pts by kernel_length_scale
+        v1_integrand_gf = (1 - self.gradient_decay) * quad_pts_correct_var
+        v1_integrand_gi = self.gradient_decay * (sigma_sq * log_dens_grads)
+        v1_integrand = v1_integrand_gf + v1_integrand_gi
+
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
-            v1_integrand, quad_wts, log_dens_evals
+            v1_integrand, quad_wts, log_v=log_dens_evals
         )
         return log_v0, sigma_sq_score_v0
 
