@@ -10,7 +10,7 @@
 from .eks import EKS
 from .msip import MSIP, MSIPGS
 from .svgd import SVGD
-from .deepensembles import deepensembles
+from .deepensembles import DeepEnsembles
 from .grad_aldi import GradALDI
 from .gradfree_aldi import GradFreeALDI
 from .cbs import CBS
@@ -23,9 +23,8 @@ __all__ = [
     "MSIP",
     "MSIPGS",
     "SVGD",
-    "deepensembles",
+    "DeepEnsembles",
     "GradALDI",
-    # "gradfree_aldi",
     "GradFreeALDI",
     "EKS",
     "CBS",
