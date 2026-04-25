@@ -33,7 +33,7 @@ class MSIPFredholm(MSIPEstimator):
     log_dens_grad_val: BatchLogDensityGradVal
 
     def __init__(
-        self, gradient_decay: float, log_dens_grad_val: BatchLogDensityGradVal
+        self, gradient_decay: float, log_dens_grad_val: BatchLogDensityGradVal, **kwargs
     ):
         self.gradient_decay = gradient_decay
         self.log_dens_grad_val = log_dens_grad_val
