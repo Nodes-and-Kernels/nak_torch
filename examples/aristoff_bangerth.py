@@ -12,7 +12,7 @@ from nak_torch.tools.kernel import sqexp_kernel_matrix
 from tqdm import tqdm
 import pandas as pd
 from nak_torch.tools.types import BatchGradLogDensityEvaluator
-import pyro_tools
+from nak_torch.tools import pyro_tools
 from pyro.infer import mcmc
 
 if torch.cuda.is_available():

@@ -18,6 +18,14 @@ dependencies = [
 [project.scripts]
 nak-torch = "nak_torch:main"
 
+[project.optional-dependencies]
+examples = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.8",
+    "pyro-ppl>=1.9.1",
+    "scipy>=1.17.1",
+]
+
 [build-system]
 requires = ["uv_build>=0.8.3,<0.9.0"]
 build-backend = "uv_build"

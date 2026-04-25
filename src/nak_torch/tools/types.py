@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 import torch
+import numpy as np
 from torch import Tensor
-from jaxtyping import Float
+from jaxtyping import Float, Bool
+from typing import Self
 
 DeviceLike = str | torch.device | int
 
@@ -12,6 +14,8 @@ BatchType = Float[Tensor, "batch"]
 PtType = Float[Tensor, " d"]
 CovType = Float[Tensor, "d d"]
 BatchPtType = Float[Tensor, "batch d"]
+DatasetType = Bool[Tensor, "d samples"]
+LabelsType = Bool[Tensor, " batch"]
 QuadrulePtType = Float[Tensor, "quad d"]
 QuadruleWtType = Float[Tensor, "quad"]
 BatchQuadrulePtType = Float[Tensor, "batch quad d"]
@@ -110,8 +114,14 @@ class BatchGradLogDensityEvaluator(BatchTargetEvaluator[BatchPtType]):
         return self.grad_log_density(pts, target_args)
 
 
+class AbstractModel(NAKTarget):
+    @abstractmethod
+    def to_log_dens(self: Self, use_compiled: bool = True) -> BatchLogDensity:
+        pass
+
+
 @dataclass
-class GaussianModel(NAKTarget):
+class GaussianModel(AbstractModel):
     forward_model: BatchForwardModel
     likelihood_precision: float | Float[Tensor, "obs obs"]
     prior_precision: float | Float[Tensor, "dim dim"]
@@ -151,5 +161,121 @@ class GaussianModel(NAKTarget):
             prior_sq_norm = prior_diff.square().sum(dim=-1)
             prior_term = prior_sq_norm.mul_(self.prior_precision)
             return -0.5 * (prior_term + like_term)
+
+        return torch.compile(log_dens) if use_compiled else log_dens
+
+
+def bernoulli_loglikelihood_logit(logits, labels):
+    # If logit(p) = log(p / (1-p)), bernoulli log-likelihood is
+    # log pi(y | p) = y*logit(p) + log(1-p)
+    # If q = logit(p), then log(1-p) = -softplus(q) and
+    # log pi(y | q) = y * q - softplus(q)
+    constant_term = -torch.nn.functional.softplus(logits)
+    return torch.sum(labels * logits + constant_term)
+
+
+bernoulli_loglikelihood_logit_v = torch.vmap(bernoulli_loglikelihood_logit, (0, None))
+
+
+@dataclass
+class LogisticRegressionModel(AbstractModel):
+    """Assumes a gaussian prior and linear model for logits"""
+
+    dim: int
+    prior_mean: float | Float[Tensor, " dim"] | None
+    train_data: Float | Float[Tensor, "dim labels"]
+    test_data: Optional[Float | Float[Tensor, "dim labels"]]
+    train_labels: Float | Float[Tensor, " labels"]
+    test_labels: Optional[Float | Float[Tensor, " labels"]]
+    sum_bernoulli: bool
+    hyperprior: torch.distributions.Gamma
+
+    def __init__(
+        self,
+        data_or_fname: Float[Tensor, "dim-1 labels"] | str,
+        labels: Optional[Float[Tensor, " labels"]],
+        prior_mean: float | Float[Tensor, " dim"] | None = None,
+        dtype=None,
+        device=None,
+        hyperprior_a=1.0,
+        hyperprior_b=0.1,
+        train_proportion=1.0,
+        sum_bernoulli=True,
+    ):
+        data: torch.Tensor
+        dtype = torch.get_default_dtype() if dtype is None else dtype
+        device = torch.get_default_device() if device is None else device
+
+        def as_tensor(t):
+            return torch.as_tensor(t, dtype=dtype, device=device)
+
+        self.prior_mean = prior_mean if prior_mean is None else as_tensor(prior_mean)
+        if isinstance(data_or_fname, str):
+            data = as_tensor(np.load(data_or_fname))
+            if labels is None:  # Split labels from data
+                labels = data[:, -1]
+                data = data[:, :-1]
+        elif isinstance(data_or_fname, torch.Tensor):
+            data = data_or_fname
+        else:
+            raise ValueError(
+                f"Expected data_or_fname to be str or tensor, got {type(data_or_fname)}"
+            )
+        N_pts = data.shape[0]
+        if labels is None or labels.shape[0] != N_pts:
+            raise ValueError("Unexpected type or size of argument `labels`.")
+        constant = as_tensor(torch.ones(N_pts))
+        data = torch.column_stack((constant, data)).T
+        if train_proportion >= 1.0:
+            self.train_data, self.test_data = data, None
+            self.train_labels, self.test_labels = labels, None
+        else:
+            ridx = torch.randperm(N_pts)
+            num_train = int(np.floor(N_pts * train_proportion))
+            self.train_data = data[:, ridx[:num_train]]
+            self.train_labels = labels[ridx[:num_train]]
+            self.test_data = data[:, ridx[num_train:]]
+            self.test_labels = labels[ridx[num_train:]]
+        self.dim = data.shape[0] + 1
+        self.prior_mean = prior_mean
+        self.sum_bernoulli = sum_bernoulli
+        self.hyperprior = torch.distributions.Gamma(
+            as_tensor(hyperprior_a), as_tensor(hyperprior_b)
+        )
+
+    def to_log_dens(self, use_compiled: bool = True):
+        log_hyperprior = self.hyperprior.log_prob
+
+        def log_dens(
+            params: BatchPtType,
+            data_labels: Optional[tuple[BatchPtType, LabelsType]] = None,
+        ) -> BatchType:
+            if data_labels is None:
+                data, labels = self.train_data, self.train_labels
+            else:
+                data, labels = data_labels
+            is_batch = params.ndim == 2
+            if not is_batch:
+                params = params.unsqueeze(0)
+            if params.shape[1] != self.dim:
+                raise ValueError(
+                    f"Got params.shape[1] = {params.shape[1]}, expected {self.dim}"
+                )
+            prior_diff = params.clone()
+            if self.prior_mean is not None:
+                prior_diff -= self.prior_mean
+            coeffs = params[:, :-1]
+            log_precision = params[:, -1]
+            precision = torch.exp(log_precision)
+            hyperprior_term = log_hyperprior(precision)
+            prior_term = prior_diff.square().sum(dim=-1).mul_(0.5 * precision).neg_()
+            # log-normalization constant of prior w.r.t. alpha = precision
+            prior_term += 0.5 * self.dim * log_precision
+            logits = coeffs @ data
+            likelihood = bernoulli_loglikelihood_logit_v(logits, labels)
+            if not self.sum_bernoulli:
+                likelihood /= labels.numel()
+            post = likelihood + prior_term + hyperprior_term
+            return post if is_batch else post[0]
 
         return torch.compile(log_dens) if use_compiled else log_dens
