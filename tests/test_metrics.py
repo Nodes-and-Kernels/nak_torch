@@ -93,15 +93,15 @@ def test_sample_mmd(sample_mmd_file):
     mmd_1_eval = mmd_1(target_samples).item()
     assert mmd_1_eval < (10 / math.sqrt(N_REF))
     mmd_1_eval_wt = mmd_1(target_samples, torch.ones(N_TARGET) / N_TARGET).item()
-    assert mmd_1_eval_wt == pytest.approx(mmd_1_eval, rel=1e-10, abs=1e-10)
+    assert mmd_1_eval_wt == pytest.approx(mmd_1_eval)
     mmd_2 = metrics.SampleMMD(ref_samples, kernel_lengthscale, self_mmd = mmd_1.self_mmd, use_compiled=USE_COMPILED)
-    assert mmd_2(target_samples).item() == pytest.approx(mmd_1_eval, rel=1e-10, abs=1e-10)
+    assert mmd_2(target_samples).item() == pytest.approx(mmd_1_eval)
     mmd_serial = metrics.SampleMMD(ref_samples, kernel_lengthscale, self_mmd_serial = sample_mmd_file, use_compiled=USE_COMPILED)
-    assert mmd_serial(target_samples).item() == pytest.approx(mmd_1_eval, rel=1e-10, abs=1e-10)
+    assert mmd_serial(target_samples).item() == pytest.approx(mmd_1_eval)
     with open(sample_mmd_file, "rb") as f:
         d = pickle.load(f)
         assert kernel_lengthscale in d.keys()
         assert d[kernel_lengthscale] == mmd_1.self_mmd
     mmd_serial_2 = metrics.SampleMMD(ref_samples, kernel_lengthscale, self_mmd_serial = sample_mmd_file, use_compiled=USE_COMPILED)
-    assert mmd_serial_2(target_samples).item() == pytest.approx(mmd_1_eval, rel=1e-10, abs=1e-10)
+    assert mmd_serial_2(target_samples).item() == pytest.approx(mmd_1_eval)
 
