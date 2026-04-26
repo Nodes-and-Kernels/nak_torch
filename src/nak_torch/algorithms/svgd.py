@@ -53,6 +53,7 @@ def svgd_step(
 @dataclass
 class SVGDAlgorithmArgs:
     kernel_lengthscale: float
+    historical_grad: BatchPtType
 
 
 class SVGD(
@@ -61,6 +62,8 @@ class SVGD(
     default_kernel_lengthscale: float
     kernel_lengthscale_quantile: Optional[float]
     kernel_grad_val: BatchKernelGradValFunction
+    gradient_decay_factor: float
+    fudge_factor: float
 
     def get_adaptive_lengthscale(self, particles: BatchPtType) -> float:
         q = self.kernel_lengthscale_quantile
@@ -78,6 +81,8 @@ class SVGD(
         kernel_lengthscale: Optional[float] = None,
         kernel_lengthscale_quantile: Optional[float] = None,
         kernel_elem: Optional[KernelFunction] = None,
+        gradient_decay_factor: float = 0.9,
+        fudge_factor: float = 1e-6,
         **kwargs,
     ):
         super().__init__(dim, n_particles, device, dtype, **kwargs)
@@ -98,17 +103,33 @@ class SVGD(
         )
         self.kernel_lengthscale_quantile = kernel_lengthscale_quantile
         self.kernel_grad_val = create_svgd_kernel_grad_val(kernel_elem)
+        self.gradient_decay_factor = gradient_decay_factor
+        self.fudge_factor = fudge_factor
 
     def initialize(self, init_particles, target, target_args):
         kernel_lengthscale = self.get_adaptive_lengthscale(init_particles)
-        return None, SVGDAlgorithmArgs(kernel_lengthscale)
+        grad_log_dens_eval = target(init_particles, target_args)
+        particles_diff = svgd_step(
+            self.kernel_grad_val, init_particles, grad_log_dens_eval, kernel_lengthscale
+        )
+        historical_grad = particles_diff.square()
+        return None, SVGDAlgorithmArgs(kernel_lengthscale, historical_grad)
 
     def step(self, lr, particles, target, algorithm_args, target_args):
-        (kernel_lengthscale,) = astuple(algorithm_args)
+        kernel_lengthscale: float
+        historical_grad: BatchPtType
+        kernel_lengthscale, historical_grad = astuple(algorithm_args)
         grad_log_dens_eval = target(particles, target_args)
         particles_diff = svgd_step(
             self.kernel_grad_val, particles, grad_log_dens_eval, kernel_lengthscale
         )
-        new_particles = particles_diff.mul_(lr).add_(particles)
+        alpha = self.gradient_decay_factor
+        historical_grad = alpha * historical_grad + (1 - alpha) * (particles_diff**2)
+        adj_grad = particles_diff.divide_(self.fudge_factor + historical_grad.sqrt())
+        new_particles = adj_grad.mul_(lr).add_(particles)
         new_kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)
-        return new_particles, None, SVGDAlgorithmArgs(new_kernel_lengthscale)
+        return (
+            new_particles,
+            None,
+            SVGDAlgorithmArgs(new_kernel_lengthscale, historical_grad),
+        )

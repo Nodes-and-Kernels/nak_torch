@@ -33,6 +33,7 @@ def nak(
 ) -> Tensor | tuple[Tensor, Tensor]:
     r"""
     TODO: Document
+    target_args: If `get_target_args` is not None, nak uses this for initializing the algorithm's parameters.
     """
     verbose, n_particles = algorithm.verbose, algorithm.n_particles
     if verbose and len(kwargs) > 0:
