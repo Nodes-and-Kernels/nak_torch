@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import torch
 import numpy as np
 from torch import Tensor
+from torch.utils import data as torch_data
 from jaxtyping import Float, Bool
 from typing import Self
 
@@ -192,7 +193,7 @@ class LogisticRegressionModel(AbstractModel):
 
     def __init__(
         self,
-        data_or_fname: Float[Tensor, "dim-1 labels"] | str,
+        data_or_fname: Float[Tensor, "labels dim-1"] | str,
         labels: Optional[Float[Tensor, " labels"]],
         prior_mean: float | Float[Tensor, " dim"] | None = None,
         dtype=None,
@@ -225,18 +226,18 @@ class LogisticRegressionModel(AbstractModel):
         if labels is None or labels.shape[0] != N_pts:
             raise ValueError("Unexpected type or size of argument `labels`.")
         constant = as_tensor(torch.ones(N_pts))
-        data = torch.column_stack((constant, data)).T
+        data = torch.column_stack((constant, data))
         if train_proportion >= 1.0:
             self.train_data, self.test_data = data, None
             self.train_labels, self.test_labels = labels, None
         else:
             ridx = torch.randperm(N_pts)
             num_train = int(np.floor(N_pts * train_proportion))
-            self.train_data = data[:, ridx[:num_train]]
+            self.train_data = data[ridx[:num_train]]
             self.train_labels = labels[ridx[:num_train]]
-            self.test_data = data[:, ridx[num_train:]]
+            self.test_data = data[ridx[num_train:]]
             self.test_labels = labels[ridx[num_train:]]
-        self.dim = data.shape[0] + 1
+        self.dim = data.shape[1] + 1
         self.prior_mean = prior_mean
         self.sum_bernoulli = sum_bernoulli
         self.hyperprior = torch.distributions.Gamma(
@@ -271,7 +272,7 @@ class LogisticRegressionModel(AbstractModel):
             prior_term = prior_diff.square().sum(dim=-1).mul_(0.5 * precision).neg_()
             # log-normalization constant of prior w.r.t. alpha = precision
             prior_term += 0.5 * self.dim * log_precision
-            logits = coeffs @ data
+            logits = coeffs @ data.T
             likelihood = bernoulli_loglikelihood_logit_v(logits, labels)
             if not self.sum_bernoulli:
                 likelihood /= labels.numel()
@@ -279,3 +280,28 @@ class LogisticRegressionModel(AbstractModel):
             return post if is_batch else post[0]
 
         return torch.compile(log_dens) if use_compiled else log_dens
+
+    def get_data_loader(
+        self,
+        use_test_data: bool,
+        batch_size: int = 1,
+        shuffle: bool = False,
+        num_workers: int = 0,
+        *data_loader_args,
+        **data_loader_kwargs,
+    ):
+        data: torch_data.TensorDataset
+        if use_test_data:
+            if self.test_data is None or self.test_labels is None:
+                raise ValueError("Cannot use test data as None")
+            data = torch_data.TensorDataset(self.test_data, self.test_labels)
+        else:
+            data = torch_data.TensorDataset(self.train_data, self.train_labels)
+        return torch_data.DataLoader(
+            data,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            *data_loader_args,
+            **data_loader_kwargs,
+        )

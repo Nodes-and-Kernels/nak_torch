@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 import warnings
 
 from tqdm import tqdm
@@ -28,6 +28,7 @@ def nak(
     bounds: Optional[tuple[float, float]] = None,
     keep_all: bool = True,
     target_args: Any = None,
+    get_target_args: Optional[Iterator] = None,
     **kwargs,
 ) -> Tensor | tuple[Tensor, Tensor]:
     r"""
@@ -76,6 +77,9 @@ def nak(
             trajectories[idx + 1].copy_(particles)
             if algorithm.is_weighted():
                 traj_wts[idx + 1].copy_(particle_wts)
+
+        if get_target_args is not None:
+            target_args = next(get_target_args)
 
         particles, particle_wts, algorithm_args = algorithm.step(
             lr, particles, target, algorithm_args, target_args
