@@ -38,6 +38,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.1.0",
     "ruff>=0.15.8",
+    "scipy>=1.17.1",
 ]
 
 [tool.pytest.ini_options]
