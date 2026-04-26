@@ -1,3 +1,4 @@
+import os
 from typing import Callable, Optional
 from abc import ABC, abstractmethod
 from warnings import warn
@@ -182,7 +183,7 @@ class SampleMMD(Metric):
         samples: BatchPtType,
         kernel_lengthscale: float,
         kernel_elem: Optional[KernelFunction] = None,
-        self_mmd: Optional[float] = None,
+        self_mmd: Optional[Float] = None,
         self_mmd_serial: Optional[str] = None,
         use_compiled: bool = True,
     ):
@@ -199,31 +200,41 @@ class SampleMMD(Metric):
         else:
             kernel_reduce_elem = _kernel_reduce
         kernel_reduce = torch.vmap(kernel_reduce_elem)
-        self.kernel_reduce = kernel_reduce
+        self.kernel_sample_reduce = kernel_reduce
         kernel_mat = matricize_kernel_elem(kernel_elem, use_compiled)
         self.kernel_mat = lambda pts: kernel_mat(pts, kernel_lengthscale)
         if self_mmd is None:
             if self_mmd_serial is None:
                 self.self_mmd = kernel_reduce(samples).mean()
             else:
-                import fcntl
+                import fcntl  # TODO: Fix for windows, I guess
 
-                with open(self_mmd_serial, "rwb") as f:
-                    self_mmd_dict = pickle.load(f)
-                    self_mmd_pkl: float
-                    if kernel_lengthscale in self_mmd_dict.keys():
-                        self_mmd_pkl = self_mmd_dict[kernel_lengthscale]
-                    else:
-                        self_mmd_pkl = kernel_reduce(samples).mean()
-                        # Ensure file is locked and up-to-date in case things are written in parallel
+                self_mmd_dict: dict[float, Float] = {}
+                file_existed_prev = os.path.exists(self_mmd_serial)
+                with open(self_mmd_serial, "rb+") as f:
+                    if file_existed_prev:
+                        try:
+                            self_mmd_dict = pickle.load(f)
+                        except EOFError:
+                            self_mmd_dict = {}
+                self_mmd_pkl: float
+                if kernel_lengthscale in self_mmd_dict.keys():
+                    self_mmd_pkl = self_mmd_dict[kernel_lengthscale]
+                else:
+                    self_mmd_pkl = kernel_reduce(samples).mean()
+                    # Ensure file is locked and up-to-date in case things are written in parallel
+                    with open(self_mmd_serial, "wb+") as f:
                         fcntl.lockf(f, fcntl.LOCK_EX)
-                        self_mmd_dict = pickle.load(f)
+                        try:
+                            new_self_mmd_dict = pickle.load(f)
+                        except EOFError:
+                            new_self_mmd_dict = self_mmd_dict
                         self_mmd_dict[kernel_lengthscale] = self_mmd_pkl
-                        pickle.dump(self_mmd_dict, f)
+                        pickle.dump(new_self_mmd_dict, f)
                         fcntl.lockf(f, fcntl.LOCK_UN)
-                        # End lock
-                    self.self_mmd = self_mmd_pkl
-        elif isinstance(self_mmd, float):
+                    # End lock
+                self.self_mmd = self_mmd_pkl
+        else:
             self.self_mmd = self_mmd
 
     def __call__(self, pts, wts=None):
