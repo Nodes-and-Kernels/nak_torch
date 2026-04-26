@@ -5,7 +5,7 @@ from tqdm import tqdm
 import numpy as np
 import torch
 
-from nak_torch.tools.kernel import default_kernel_matrix
+from nak_torch.tools.kernel import DEFAULT_KERNEL_MATRIX
 from nak_torch.tools.util import initialize_particles, quantile_distance
 from .msip_map import msip_map
 from .estimators import MSIPEstimator
@@ -99,7 +99,7 @@ def msip_adapt(
         choose_running = _choose_running
 
     if get_kernel_matrix is None:
-        get_kernel_matrix = default_kernel_matrix
+        get_kernel_matrix = DEFAULT_KERNEL_MATRIX
 
     msip_estimator = process_msip_density(log_density, **msip_kwargs)
     particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
