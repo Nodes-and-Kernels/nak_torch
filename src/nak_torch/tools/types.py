@@ -188,7 +188,7 @@ class LogisticRegressionModel(AbstractModel):
     test_data: Optional[Float | Float[Tensor, "dim labels"]]
     train_labels: Float | Float[Tensor, " labels"]
     test_labels: Optional[Float | Float[Tensor, " labels"]]
-    sum_bernoulli: bool
+    use_mean_reduction: bool
     hyperprior: torch.distributions.Gamma
 
     def __init__(
@@ -201,7 +201,7 @@ class LogisticRegressionModel(AbstractModel):
         hyperprior_a=1.0,
         hyperprior_b=0.1,
         train_proportion=1.0,
-        sum_bernoulli=True,
+        reduction="mean",
     ):
         data: torch.Tensor
         dtype = torch.get_default_dtype() if dtype is None else dtype
@@ -210,6 +210,15 @@ class LogisticRegressionModel(AbstractModel):
         def as_tensor(t):
             return torch.as_tensor(t, dtype=dtype, device=device)
 
+        match reduction:
+            case "mean":
+                self.use_mean_reduction = True
+            case "sum":
+                self.use_mean_reduction = False
+            case _:
+                raise ValueError(
+                    f"Expected reduction to be sum or mean, got {reduction}"
+                )
         self.prior_mean = prior_mean if prior_mean is None else as_tensor(prior_mean)
         if isinstance(data_or_fname, str):
             data = as_tensor(np.load(data_or_fname))
@@ -239,7 +248,6 @@ class LogisticRegressionModel(AbstractModel):
             self.test_labels = labels[ridx[num_train:]]
         self.dim = data.shape[1] + 1
         self.prior_mean = prior_mean
-        self.sum_bernoulli = sum_bernoulli
         self.hyperprior = torch.distributions.Gamma(
             as_tensor(hyperprior_a), as_tensor(hyperprior_b)
         )
@@ -274,7 +282,7 @@ class LogisticRegressionModel(AbstractModel):
             prior_term += 0.5 * self.dim * log_precision
             logits = coeffs @ data.T
             likelihood = bernoulli_loglikelihood_logit_v(logits, labels)
-            if not self.sum_bernoulli:
+            if self.use_mean_reduction:
                 likelihood /= labels.numel()
             post = likelihood + prior_term + hyperprior_term
             return post if is_batch else post[0]
