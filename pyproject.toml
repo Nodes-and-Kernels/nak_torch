@@ -24,8 +24,8 @@ examples = [
     "matplotlib>=3.10.8",
     "posteriordb>=0.2.0",
     "pyro-ppl>=1.9.1",
+    "pystan>=3.10.1",
     "scipy>=1.17.1",
-    "stanpy>=0.2.11",
 ]
 
 [build-system]
