@@ -8,7 +8,7 @@ from nak_torch.algorithms import msip, svgd
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from datetime import datetime
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
+from nak_torch.tools.kernel import kernel_optimal_weight_factory, DEFAULT_KERNEL_MATRIX
 
 save_gif = False
 algorithm_name = "msip_ni"
@@ -96,7 +96,7 @@ trajectories_gf,w = msip(
 )
 
 pts_gf = trajectories_gf[-1]
-wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), default_kernel_matrix(pts_gf, params["kernel_length_scale"]))
+wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), DEFAULT_KERNEL_MATRIX(pts_gf, params["kernel_length_scale"]))
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
 
