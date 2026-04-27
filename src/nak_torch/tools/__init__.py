@@ -19,7 +19,13 @@ __all__ = [
     "adaptive_step",
     "metrics",
 ]
+
 if importlib.util.find_spec("pyro") is not None:
     from . import pyro_tools  # noqa: F401
 
     __all__.append("pyro_tools")
+
+if importlib.util.find_spec("stanpy") is not None:
+    from . import stan_tools  # noqa: F401
+
+    __all__.append("stan_tools")
