@@ -11,6 +11,9 @@ from nak_torch.algorithms.msip import (
     MSIPGMMGaussianKernel,
 )
 
+from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre, spherical_struct_radial_Laguerre
+
+
 # ── Device / dtype ────────────────────────────────────────────────────────────
 if torch.cuda.is_available():
     torch.set_default_device("cuda")
@@ -18,34 +21,54 @@ else:
     torch.set_default_device("cpu")
 
 torch.set_default_dtype(torch.float64)
-torch.manual_seed(1023921)
+torch.manual_seed(314159)
+#1023921
+#314159
+def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
+    """
+    Euclidean projection of w onto {u >= 0, sum u = z}.
+    Works for a 1D tensor w.
+    """
+    if w.ndim != 1:
+        raise ValueError("project_simplex expects a 1D tensor.")
+
+    u, _ = torch.sort(w, descending=True)
+    cssv = torch.cumsum(u, dim=0) - z
+
+    idx = torch.arange(1, w.numel() + 1, device=w.device, dtype=w.dtype)
+    cond = u - cssv / idx > 0
+
+    rho = torch.nonzero(cond, as_tuple=False)[-1, 0]
+    tau = cssv[rho] / (rho + 1).to(w.dtype)
+
+    return torch.clamp(w - tau, min=0.0)
 
 
 # ── Target: 5-component GMM ───────────────────────────────────────────────────
 gmm_weights = torch.tensor([1/5] * 5)
 
 gmm_means = torch.stack([
-    torch.tensor([ 6.2, -6.0]),
-    torch.tensor([-4.0,  5.0]),
-    torch.tensor([ 7.0,  3.0]),
-    torch.tensor([-6.5, -4.5]),
-    torch.tensor([ 1.0,  7.0]),
+    2* torch.tensor([ 6.2, -6.0]),
+    2* torch.tensor([-4.0,  5.0]),
+    2* torch.tensor([ 7.0,  3.0]),
+    2* torch.tensor([-6.5, -4.5]),
+    2* torch.tensor([ 1.0,  7.0]),
 ])
 
 gmm_covs = torch.stack([
-    0.5 * torch.tensor([[1.5,  0.1],
+     torch.tensor([[1.5,  0.1],
                         [0.1,  0.5]]),
 
-    0.5 * torch.tensor([[2.0, -0.6],
+     torch.tensor([[2.0, -0.6],
                         [-0.6, 0.5]]),
 
-    0.5 * torch.tensor([[0.7,  0.4],
+     torch.tensor([[0.7,  0.4],
                         [0.4,  1.2]]),
 
-    0.5 * torch.tensor([[1.3, -0.5],
+     torch.tensor([[1.3, -0.5],
                         [-0.5, 0.9]]),
 
-    0.5 * torch.tensor([[0.6,  0.35],
+     torch.tensor([[0.6,  0.35],
                         [0.35, 1.6]]),
 ])
 
@@ -83,11 +106,11 @@ model = nak_torch.GaussianModel(
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
 n_steps     = 500
 n_particles = 50
-lr          = 0.5
-lr_msip     = 50e-2
+lr          = 0.8
+lr_msip     = 0.8
 
 kernel_length_scale = 0.5
-kernel_diag_infl    = 1e-8
+kernel_diag_infl    = 1e-6
 gradient_decay      = 1.0
 bounds              = (-100.0, 100.0)
 
@@ -95,16 +118,37 @@ bounds              = (-100.0, 100.0)
 #     model.prior_precision + torch.tensor([3.2, -5.0])
     
     
-init_mean = torch.tensor([8.0, 8.0])
+init_mean = torch.tensor([15.0, 15.0])
 init_std = 1.0
 init_particles = init_mean + init_std * torch.randn((n_particles, 2))
 
 
 
 # ── Quadrature rule ───────────────────────────────────────────────────────────
-def mc_quad_rule(batch_size: int, N_quad: int = 5, dim: int = 2):
+def mc_quad_rule(batch_size: int, N_quad: int = 40, dim: int = 2):
     pts = torch.randn((batch_size, N_quad, dim))
     wts = torch.ones((batch_size, N_quad)).div_(N_quad)
+    return pts, wts
+
+
+def spherical_quad_(batch_size: int, N_quad: int = 10, dim: int = 2):
+                   
+    dimension = dim
+    N_spherical = 10
+    N_radial = int(N_quad/10)
+    pts, wts = spherical_MC_radial_Laguerre(
+        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+    )
+    #print(wts.shape)
+    return pts, wts
+
+def spherical_quad(batch_size: int, N_quad: int = 40, dim: int = 2):
+    dimension = dim
+    N_spherical = 2 * dimension
+    N_radial = max(1, int(N_quad / N_spherical))
+    pts, wts = spherical_struct_radial_Laguerre(
+        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+    )
     return pts, wts
 
 
@@ -148,7 +192,7 @@ trajectories_msip_f, traj_wts_msip_f = msip(
 print("=== MSIP-QG ===")
 msip_quadgrad = MSIPQuadGradientInformed(
     post_log_dens_grad_val_batch,
-    partial(mc_quad_rule, N_quad=10),
+    partial(spherical_quad, N_quad=1),
     gradient_decay,
 )
 trajectories_msip_qg, traj_wts_msip_qg = msip(
@@ -163,7 +207,7 @@ trajectories_msip_qg, traj_wts_msip_qg = msip(
 print("=== MSIP-GS-QG ===")
 msip_quadgrad_gs = MSIPQuadGradientInformed(
     post_log_dens_grad_val_batch,
-    partial(mc_quad_rule, N_quad=10),
+    partial(spherical_quad, N_quad=1),
     gradient_decay,
 )
 trajectories_msip_gs_qg, traj_wts_msip_gs_qg = msip_gs(
@@ -363,8 +407,8 @@ print("KSD (IMQ) done.")
 # ══════════════════════════════════════════════════════════════════════════════
 
 Ngrid    = 100
-xgrid    = torch.linspace(-10, 15, Ngrid)
-ygrid    = torch.linspace(-10, 15, Ngrid)
+xgrid    = torch.linspace(-20, 25, Ngrid)
+ygrid    = torch.linspace(-20, 25, Ngrid)
 X, Y     = torch.meshgrid(xgrid, ygrid, indexing="ij")
 grid_pts = torch.stack((X.flatten(), Y.flatten()), 1)
 Z        = post_log_dens(grid_pts).reshape(Ngrid, Ngrid)
@@ -381,6 +425,9 @@ levels = torch.linspace(z_min, Z.max(), 20).cpu().numpy()
 def plot_particles(ax, pts, wts=None, title=""):
     #ax.contour(X.cpu(), Y.cpu(), Z.cpu(), levels=20, alpha=0.6)
     ax.contour(X.cpu(), Y.cpu(), Z.cpu(), levels=levels, alpha=0.6)
+    #if wts is not None:
+    #    wts =project_simplex(wts, z=1.0)
+    #    print(wts)
     c  = torch.abs(wts.cpu()) if wts is not None else None
     sc = ax.scatter(
         pts[:, 0].cpu(), pts[:, 1].cpu(),
@@ -390,8 +437,8 @@ def plot_particles(ax, pts, wts=None, title=""):
     if wts is not None:
         plt.colorbar(sc, ax=ax, shrink=0.8, label="weight")
     ax.set_title(title, fontsize=11)
-    ax.set_xlim(-10, 15)
-    ax.set_ylim(-10, 15)
+    ax.set_xlim(-20, 25)
+    ax.set_ylim(-20, 25)
     ax.set_aspect(1.0)
     ax.set_xlabel("x₁")
     ax.set_ylabel("x₂")
