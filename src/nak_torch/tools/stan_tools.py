@@ -22,28 +22,20 @@ class StanModel(NAKTarget):
         self.model = model
 
     def log_dens_batch(self, theta: BatchPtType, _) -> BatchType:
-        out = torch.empty(theta.shape[0], dtype=theta.dtype, device="cpu")
-        for theta_idx in range(theta.shape[0]):
-            th = theta[theta_idx].cpu().tolist()
-            out[theta_idx] = self.model.log_prob(th)
-        return out.to(device=theta.device)
+        device, dtype = theta.device, theta.dtype
+        out_np = self.model.log_prob(theta.cpu().numpy())
+        return torch.as_tensor(out_np, device=device, dtype=dtype)
 
     def grad_log_dens_batch(self, theta: BatchPtType, _) -> BatchPtType:
-        out = torch.empty_like(theta, device="cpu")
-        for theta_idx in range(theta.shape[0]):
-            th = theta[theta_idx].cpu().tolist()
-            out_i = self.model.grad_log_prob(th)
-            out[theta_idx] = torch.as_tensor(out_i)
-        return out.to(device=theta.device)
+        device, dtype = theta.device, theta.dtype
+        out_np = self.model.grad_log_prob(theta.cpu().numpy())
+        return torch.as_tensor(out_np, device=device, dtype=dtype)
 
     def grad_val_log_dens_batch(
         self, theta: BatchPtType, _
     ) -> tuple[BatchPtType, BatchType]:
-        out_grad = torch.empty_like(theta, device="cpu")
-        out = torch.empty(theta.shape[0], device="cpu")
-        for theta_idx in range(theta.shape[0]):
-            th = theta[theta_idx].cpu().tolist()
-            out_grad_i = self.model.grad_log_prob(th)
-            out_grad[theta_idx] = torch.as_tensor(out_grad_i)
-            out[theta_idx] = self.model.log_prob(th)
-        return out_grad.to(device=theta.device), out.to(device=theta.device)
+        device, dtype = theta.device, theta.dtype
+        out_grad_np, out_val_np = self.model.grad_val_log_prob(theta.cpu().numpy())
+        return torch.as_tensor(
+            out_grad_np, device=device, dtype=dtype
+        ), torch.as_tensor(out_val_np, device=device, dtype=dtype)
