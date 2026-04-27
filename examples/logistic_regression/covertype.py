@@ -51,7 +51,7 @@ if not os.path.isfile(DATA_PATH):
 # %%
 data_path = DATA_PATH
 regression_model = LogisticRegressionModel(
-    data_path, None, hyperprior_b=0.01, train_proportion=0.8
+    data_path, None, hyperprior_b=0.01, train_proportion=0.8, reduction="sum"
 )
 log_dens = regression_model.to_log_dens(use_compiled=True)
 
@@ -101,13 +101,14 @@ def spherical_quad(
 KERNEL_LENGTHSCALE = 0.1
 GRADIENT_DECAY = 0.9
 KERNEL_DIAG_INFL = 1e-5
+KERNEL_QUANTILE = 0.01
 
 msip = MSIP(
     dim=STATE_DIM,
     n_particles=N_PARTICLES,
     kernel_diag_infl=KERNEL_DIAG_INFL,
     kernel_lengthscale=KERNEL_LENGTHSCALE,
-    kernel_lengthscale_quantile=0.01,
+    kernel_lengthscale_quantile=KERNEL_QUANTILE,
 )
 
 target_msip_f = MSIPFredholm(GRADIENT_DECAY, grad_val_log_p)
@@ -116,7 +117,7 @@ target_msip_gi = MSIPQuadGradientInformed(grad_val_log_p, mc_quad_rule, GRADIENT
 # %%
 BOUNDS = (-100.0, 100.0)
 N_STEPS = 6000
-LR_MSIP = 0.05
+LR_MSIP = 0.01
 # trajectories_pts_msip_fr, trajectories_wts_msip_fr = nak_torch.nak(
 #     target_msip_f,
 #     msip,
@@ -186,17 +187,18 @@ target_svgd = BatchGradLogDensityEvaluator(
 )
 
 # %%
+LR_SVGD = 0.05
 trajectories_pts_svgd = nak_torch.nak(
     target_svgd,
     svgd,
     n_steps=N_STEPS,
-    lr=LR_MSIP,
+    lr=LR_SVGD,
     init_particles=init_particles,
     get_target_args=iter(train_data_loader),
-    bounds=BOUNDS,
+    # bounds=BOUNDS,
 )
 
 # %%
-accuracy(trajectories_pts_svgd[-1].mean(dim=0))
+accuracy(trajectories_pts_svgd[-1].mean(0))
 
 # %%

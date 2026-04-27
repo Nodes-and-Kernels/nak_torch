@@ -259,6 +259,7 @@ class LogisticRegressionModel(AbstractModel):
             params: BatchPtType,
             data_labels: Optional[tuple[BatchPtType, LabelsType]] = None,
         ) -> BatchType:
+            total_N = self.train_data.shape[0]
             if data_labels is None:
                 data, labels = self.train_data, self.train_labels
             else:
@@ -270,20 +271,23 @@ class LogisticRegressionModel(AbstractModel):
                 raise ValueError(
                     f"Got params.shape[1] = {params.shape[1]}, expected {self.dim}"
                 )
-            prior_diff = params.clone()
-            if self.prior_mean is not None:
-                prior_diff -= self.prior_mean
             coeffs = params[:, :-1]
             log_precision = params[:, -1]
+            prior_diff = coeffs.clone()
+            if self.prior_mean is not None:
+                prior_diff -= self.prior_mean
             precision = torch.exp(log_precision)
-            hyperprior_term = log_hyperprior(precision)
-            prior_term = prior_diff.square().sum(dim=-1).mul_(0.5 * precision).neg_()
+            # Correct for change-of-variables precision using chain rule:
+            # exp(log_precision) -> log(d_log_precision) = log(d_precision) + log_precision
+            hyperprior_term = log_hyperprior(precision) + log_precision
+            prior_term = prior_diff.square().sum(dim=-1).mul_(-0.5 * precision)
             # log-normalization constant of prior w.r.t. alpha = precision
-            prior_term += 0.5 * self.dim * log_precision
+            num_coeffs = coeffs.shape[1]
+            prior_term = prior_term.add_((0.5 * num_coeffs) * log_precision)
             logits = coeffs @ data.T
             likelihood = bernoulli_loglikelihood_logit_v(logits, labels)
             if self.use_mean_reduction:
-                likelihood /= labels.numel()
+                likelihood *= total_N / labels.numel()
             post = likelihood + prior_term + hyperprior_term
             return post if is_batch else post[0]
 
