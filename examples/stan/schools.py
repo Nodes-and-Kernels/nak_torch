@@ -67,6 +67,7 @@ msip = MSIP(
     N_PARTICLES,
     kernel_diag_infl=KERNEL_DIAG_INFL,
     kernel_lengthscale=KERNEL_LENGTHSCALE,
+    kernel_lengthscale_quantile=0.05
 )
 
 # %%
@@ -83,3 +84,7 @@ trajectories_msip_fr = nak_torch.nak(
 trajectories_pts_msip_fr, trajectories_wts_msip_fr = trajectories_msip_fr
 
 # %%
+msip_fr_end = trajectories_pts_msip_fr[-1]
+eta_end = msip_fr_end[:,:8] - init_particles[:,:8]
+mean_sq_shift = (msip_fr_end - init_particles).square().sum() / init_particles.square().sum()
+print(mean_sq_shift)
