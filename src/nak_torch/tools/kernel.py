@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 from jaxtyping import Float
 from torch import Tensor
 from .types import (
@@ -157,15 +157,15 @@ def stein_kernel_mat_factory(
 
 
 def kernel_grad_and_value_factory(
-    kernel_elem: KernelFunction, which_argnum: int, *kernel_args
+    kernel_elem: KernelFunction, which_argnum: int
 ) -> Callable[
-    [BatchPtType, BatchPtType], tuple[GradKernelMatrixType, KernelMatrixType]
+    [BatchPtType, BatchPtType, Any], tuple[GradKernelMatrixType, KernelMatrixType]
 ]:
     kernel_grad_val = torch.func.grad_and_value(
-        lambda x, y: kernel_elem(x, y, *kernel_args), argnums=which_argnum
+        lambda x, y, kernel_args: kernel_elem(x, y, kernel_args), argnums=which_argnum
     )
     kernel_grad_val_vec = torch.vmap(
-        torch.vmap(kernel_grad_val, in_dims=(None, 0)), in_dims=(0, None)
+        torch.vmap(kernel_grad_val, in_dims=(None, 0, None)), in_dims=(0, None, None)
     )
     return kernel_grad_val_vec
 
