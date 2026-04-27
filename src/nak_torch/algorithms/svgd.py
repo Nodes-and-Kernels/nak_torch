@@ -13,21 +13,26 @@ from typing import Optional, Callable
 from tqdm import tqdm
 from nak_torch.tools.kernel import sqexp_kernel_elem, kernel_grad_and_value_factory
 from nak_torch.tools.types import KernelFunction, BatchGradLogDensity, BatchPtType
-from nak_torch.tools.util import batched_grad_log_density_factory, initialize_particles
+from nak_torch.tools.util import (
+    batched_grad_log_density_factory,
+    initialize_particles,
+    quantile_distance,
+)
 
 
 def create_svgd_step(
-    kernel_elem: KernelFunction, grad_log_p: BatchGradLogDensity, *kernel_elem_args
-) -> Callable[[BatchPtType], BatchPtType]:
+    kernel_elem: KernelFunction, grad_log_p: BatchGradLogDensity
+) -> Callable[[BatchPtType, float], BatchPtType]:
     which_argnum = 1
     kernel_grad_val = kernel_grad_and_value_factory(
-        kernel_elem, which_argnum, *kernel_elem_args
+        kernel_elem,
+        which_argnum,
     )
 
-    def svgd_step_dir(points: BatchPtType):
+    def svgd_step_dir(points: BatchPtType, kernel_lengthscale: float):
         # ASSUME SYMMETRY OF KERNEL
         # kg[i,j,ell] = grad(x_j[ell]) k(x_i, x_j), k[i,j] = k(x_i, x_j)
-        k_grad, k_eval = kernel_grad_val(points, points)
+        k_grad, k_eval = kernel_grad_val(points, points, kernel_lengthscale)
         # lpg[j,ell] = grad(x_j[ell]) log_p(x_j)
         log_p_grad_ev = grad_log_p(points)
         # term_1[i, ell] = sum_j k(i, j) grad(x_j[ell]) log_p(x_j)
@@ -53,6 +58,7 @@ def svgd(
     bounds: Optional[tuple[float, float]] = None,
     keep_all: bool = True,
     is_log_density_batched: bool = False,
+    use_quantile_length_scale: Optional[float] = None,
     grad_log_density: Optional[BatchGradLogDensity] = None,
     verbose: bool = False,
     **unused_kwargs,
@@ -62,6 +68,13 @@ def svgd(
 
     if seed is not None:
         torch.manual_seed(seed)
+
+    if use_quantile_length_scale is not None and (
+        use_quantile_length_scale > 1.0 or use_quantile_length_scale < 0.0
+    ):
+        raise ValueError(
+            f"Expected use_quantile_length_scale in [0,1], got {use_quantile_length_scale}"
+        )
 
     particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
 
@@ -76,10 +89,15 @@ def svgd(
     grad_log_p = batched_grad_log_density_factory(
         log_density, is_log_density_batched, grad_log_density
     )
-    step_fcn = create_svgd_step(kernel_elem, grad_log_p, kernel_length_scale)
+    step_fcn = create_svgd_step(kernel_elem, grad_log_p)
 
     for idx in tqdm(range(n_steps), disable=not verbose):
-        particles_diff = step_fcn(particles)
+        if use_quantile_length_scale is not None:
+            kernel_length_scale = quantile_distance(
+                particles, use_quantile_length_scale
+            )
+
+        particles_diff = step_fcn(particles, kernel_length_scale)
         with torch.no_grad():
             particles = particles + lr * particles_diff
             if bounds is not None:
