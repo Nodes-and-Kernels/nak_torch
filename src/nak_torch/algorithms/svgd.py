@@ -61,6 +61,8 @@ def svgd(
     use_quantile_length_scale: Optional[float] = None,
     grad_log_density: Optional[BatchGradLogDensity] = None,
     verbose: bool = False,
+    fudge_factor: float = 1e-6,
+    grad_decay_factor: float = 0.9,
     **unused_kwargs,
 ):
     if verbose and len(unused_kwargs) > 0:
@@ -91,6 +93,8 @@ def svgd(
     )
     step_fcn = create_svgd_step(kernel_elem, grad_log_p)
 
+    historical_grad: Optional[BatchPtType] = None
+
     for idx in tqdm(range(n_steps), disable=not verbose):
         if use_quantile_length_scale is not None:
             kernel_length_scale = quantile_distance(
@@ -98,6 +102,12 @@ def svgd(
             )
 
         particles_diff = step_fcn(particles, kernel_length_scale)
+        if historical_grad is None:
+            historical_grad = particles_diff.square()
+        else:
+            decay_add = particles_diff.square().mul_(1 - grad_decay_factor)
+            historical_grad = historical_grad.mul_(grad_decay_factor).add_(decay_add)
+        particles_diff = particles_diff.div_(historical_grad.sqrt().add_(fudge_factor))
         with torch.no_grad():
             particles = particles + lr * particles_diff
             if bounds is not None:
