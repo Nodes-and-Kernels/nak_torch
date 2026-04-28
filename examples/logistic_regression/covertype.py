@@ -48,10 +48,19 @@ def download_file(data_url: str = DATA_URL, data_path: str = DATA_PATH):
 if not os.path.isfile(DATA_PATH):
     download_file()
 
+def accuracy(coeffs):
+    data, labels = regression_model.test_data, regression_model.test_labels
+    prob = torch.sigmoid(coeffs[:-1] @ data.T)
+    pred_labels = prob > 0.5
+    return torch.mean((pred_labels == labels).to(torch.float64))
+
+accuracy_v = torch.vmap(accuracy)
+
 # %%
 data_path = DATA_PATH
 regression_model = LogisticRegressionModel(
-    data_path, None, hyperprior_b=0.01, train_proportion=0.8, reduction="sum"
+    data_path, None, hyperprior_b=0.01,
+    train_proportion=0.8, reduction="mean"
 )
 log_dens = regression_model.to_log_dens(use_compiled=True)
 
@@ -83,7 +92,7 @@ grad_val_log_p = torch.vmap(torch.func.grad_and_value(log_dens), in_dims=(0, Non
 
 
 @torch.compile(dynamic=False)
-def mc_quad_rule(batch_size: int, N_quad: int = 500, dim: int = 56):
+def mc_quad_rule(batch_size: int, N_quad: int = 2, dim: int = 56):
     pts = torch.randn((batch_size, N_quad, dim), dtype=torch.get_default_dtype())
     wts = torch.ones((batch_size, N_quad), dtype=torch.get_default_dtype()).div_(N_quad)
     return pts, wts
@@ -98,14 +107,15 @@ def spherical_quad(
 
 
 # %%
-KERNEL_LENGTHSCALE = 0.1
-GRADIENT_DECAY = 0.9
-KERNEL_DIAG_INFL = 1e-5
-KERNEL_QUANTILE = 0.01
+N_PARTICLES_MSIP = 50
+KERNEL_LENGTHSCALE = 0.01
+GRADIENT_DECAY = 1.0
+KERNEL_DIAG_INFL = 1e-6
+KERNEL_QUANTILE = None
 
 msip = MSIP(
     dim=STATE_DIM,
-    n_particles=N_PARTICLES,
+    n_particles=N_PARTICLES_MSIP,
     kernel_diag_infl=KERNEL_DIAG_INFL,
     kernel_lengthscale=KERNEL_LENGTHSCALE,
     kernel_lengthscale_quantile=KERNEL_QUANTILE,
@@ -115,18 +125,20 @@ target_msip_f = MSIPFredholm(GRADIENT_DECAY, grad_val_log_p)
 target_msip_gi = MSIPQuadGradientInformed(grad_val_log_p, mc_quad_rule, GRADIENT_DECAY)
 
 # %%
-BOUNDS = (-100.0, 100.0)
+BOUNDS = (-100., 100.)
 N_STEPS = 6000
-LR_MSIP = 0.01
-# trajectories_pts_msip_fr, trajectories_wts_msip_fr = nak_torch.nak(
-#     target_msip_f,
-#     msip,
-#     n_steps=N_STEPS,
-#     lr=LR_MSIP,
-#     init_particles=init_particles,
-#     get_target_args=iter(train_data_loader),
-#     bounds=BOUNDS,
-# )
+LR_MSIP = 0.005
+trajectories_pts_msip_fr, trajectories_wts_msip_fr = nak_torch.nak(
+    target_msip_gi,
+    msip,
+    n_steps=N_STEPS,
+    lr=LR_MSIP,
+    init_particles=init_particles[:N_PARTICLES_MSIP],
+    get_target_args=iter(train_data_loader),
+    bounds=BOUNDS,
+    keep_all=True
+)
+trajectories_pts_msip_fr[-1]
 
 # %%
 msip_end = trajectories_pts_msip_fr[-1]
@@ -137,43 +149,22 @@ lower_tri_idx = torch.tril_indices(*dist_end.shape, -1)
 lower_tri_dist = dist_end[*lower_tri_idx]
 plt.hist(lower_tri_dist)
 
-# %%
-bce_logit_v = torch.vmap(
-    torch.nn.functional.binary_cross_entropy_with_logits, in_dims=(0, None)
-)
-
-
-# @torch.compile
-def bce_logit_t(traj_t):
-    logits_t = traj_t[:, :-1] @ regression_model.test_data.T
-    return bce_logit_v(logits_t, regression_model.test_labels)
-
-
-bce_logit_traj = torch.vmap(bce_logit_t)
-bse_traj_list = []
-for j in tqdm(range(trajectories_pts_msip_fr.shape[0])):
-    bse_traj_list.append(bce_logit_t(trajectories_pts_msip_fr[j]))
-bce_traj = torch.stack(bse_traj_list)
-# logits_t = trajectories_msip[:,:,:-1].reshape(-1, trajectories_msip.shape[-1] - 1) @ regression_model.data
-# bce_traj = bce_logit_v(logits_t, regression_model.labels).reshape(*trajectories_msip.shape[:2], -1)
-# print("BCE t=0: {}, BCE t=T: {}".format(bce_0.mean(), bce_T.mean()))
+# # %%
+# bce_logit_v = torch.vmap(
+#     torch.nn.functional.binary_cross_entropy_with_logits, in_dims=(0, None)
+# )
+# bse_traj_list = []
+# for j in tqdm(range(trajectories_pts_msip_fr.shape[0])):
+#     bse_traj_list.append(bce_logit_v(trajectories_pts_msip_fr[j]))
+# bce_traj = torch.stack(bse_traj_list)
+# # %%
+# fig, ax = plt.subplots()
+# for particle_idx in range(N_PARTICLES):
+#     ax.loglog(bce_traj[:, particle_idx], alpha=0.4)
+# plt.show()
 
 # %%
-fig, ax = plt.subplots()
-for particle_idx in range(N_PARTICLES):
-    ax.loglog(bce_traj[:, particle_idx], alpha=0.4)
-plt.show()
-
-
-# %%
-def accuracy(coeffs):
-    data, labels = regression_model.test_data, regression_model.test_labels
-    prob = torch.sigmoid(coeffs[:-1] @ data.T)
-    pred_labels = prob > 0.5
-    return torch.mean((pred_labels == labels).to(torch.float64))
-
-accuracy_v = torch.vmap(accuracy)
-# accuracy_v(trajectories_pts_msip_fr[-1])
+msip_accuracies = accuracy_v(trajectories_pts_msip_fr.mean(dim=1))
 
 # %%
 svgd = SVGD(
@@ -188,10 +179,11 @@ target_svgd = BatchGradLogDensityEvaluator(
 
 # %%
 LR_SVGD = 0.05
+N_STEPS_SVGD = 6000
 trajectories_pts_svgd = nak_torch.nak(
     target_svgd,
     svgd,
-    n_steps=N_STEPS,
+    n_steps=N_STEPS_SVGD,
     lr=LR_SVGD,
     init_particles=init_particles,
     get_target_args=iter(train_data_loader),
@@ -199,6 +191,29 @@ trajectories_pts_svgd = nak_torch.nak(
 )
 
 # %%
-accuracy(trajectories_pts_svgd[-1].mean(0))
+svgd_end = trajectories_pts_svgd[-1]
+dist_end = torch.sqrt(
+    torch.sum(torch.square_(svgd_end[None, :] - svgd_end[:, None]), -1)
+)
+lower_tri_idx = torch.tril_indices(*dist_end.shape, -1)
+lower_tri_dist = dist_end[*lower_tri_idx]
+plt.hist(lower_tri_dist)
 
+# %%
+svgd_accuracies = accuracy_v(torch.mean(trajectories_pts_svgd, dim=1))
+
+# %%
+def moving_avg(v,N):
+    if N == 0:
+        return v
+    return torch.column_stack([v[j:-(N - j)] for j in range(N)]).mean(1)
+
+# %%
+smoothed_svgd_accuracies = moving_avg(svgd_accuracies, 0)
+smoothed_msip_accuracies = moving_avg(msip_accuracies, 0)
+fig, ax = plt.subplots()
+ax.plot(torch.arange(len(smoothed_svgd_accuracies)), smoothed_svgd_accuracies, label="SVGD")
+ax.plot(torch.arange(len(smoothed_msip_accuracies)), smoothed_msip_accuracies, label="MSIP")
+ax.legend()
+plt.show()
 # %%
