@@ -15,19 +15,6 @@ from nak_torch.tools.types import (
 from nak_torch.tools.util import sym_sqrtm
 
 
-# def build_gradfree_aldi_step(
-#     model: GaussianModel, rng: torch.Generator, compile_step: bool
-# ):
-#     prior_mean = model.prior_mean
-#     likelihood_precision = model.likelihood_precision
-#     prior_precision = model.prior_precision
-#     true_obs = model.true_obs
-#     if isinstance(true_obs, Tensor):
-#         true_obs.reshape(1, -1)
-
-#     sqrt_2 = torch.sqrt(torch.tensor(2, dtype=true_obs.dtype, device=true_obs.device))
-
-
 def gradfree_aldi_step(
     particles: BatchPtType,
     forecast_observations: Float[Tensor, "batch obs"],
