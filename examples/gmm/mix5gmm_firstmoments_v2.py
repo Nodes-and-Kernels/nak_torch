@@ -15,6 +15,8 @@ Metrics  (all scalar)
   MMD
   KSD-RBF, KSD-IMQ
   |Ehat[f] - E_true[f]| for f in {x1, x2, x1^2, x2^2, x1 x2}
+  Gaussian bump tests centered at the GMM means:
+      f_j(x) = exp(-||x - mu_j||^2 / (2 tau^2))
 
 Output
 ──────
@@ -70,7 +72,7 @@ def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
 
 M_VALUES = [5,10, 20, 50]
 R_RUNS = 10
-N_STEPS = 50
+N_STEPS = 500
 
 LR_SVGD = 0.8
 LR_ALDI = 0.005 / 3
@@ -86,6 +88,15 @@ INIT_MEAN = torch.tensor([15.0, 15.0])
 INIT_STD = 1.0
 BASE_SEED = 314159
 SIGMA_TAG = str(KERNEL_LS)
+
+# Gaussian bump diagnostic bandwidth.
+# The test function is
+#     f_j(x) = exp(-||x - mu_j||^2 / (2 TEST_BUMP_BW^2)),
+# where mu_j is the j-th GMM component mean.
+# Equivalently, TEST_BUMP_VAR is the variance parameter tau^2.
+TEST_BUMP_BW = 1.0
+TEST_BUMP_VAR = TEST_BUMP_BW ** 2
+BUMP_TAG = str(TEST_BUMP_BW)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TARGET: 5-COMPONENT GMM
@@ -228,6 +239,76 @@ TEST_FUNCTIONS = {
     "x2_sq": lambda pts: pts[:, 1] ** 2,
     "x1x2": lambda pts: pts[:, 0] * pts[:, 1],
 }
+
+
+# ── Gaussian bump diagnostics ───────────────────────────────────────────────
+# For each GMM component mean mu_j, add
+#     f_j(x) = exp(-||x - mu_j||^2 / (2 tau^2)).
+# The exact expectation under a Gaussian component is available in closed form:
+# if X ~ N(m, Sigma), then
+#     E f_j(X)
+#       = det(I + Sigma / tau^2)^(-1/2)
+#         exp(-1/2 (mu_j - m)^T (Sigma + tau^2 I)^(-1) (mu_j - m)).
+
+def gaussian_bump_expectation_under_gaussian(
+    center: torch.Tensor,
+    mean: torch.Tensor,
+    cov: torch.Tensor,
+    bw: float,
+) -> torch.Tensor:
+    """
+    Compute E[exp(-||X - center||^2 / (2 bw^2))]
+    for X ~ N(mean, cov).
+    """
+    d = mean.numel()
+    bw_sq = bw ** 2
+    eye = torch.eye(d, device=mean.device, dtype=mean.dtype)
+
+    diff = center - mean
+    A = cov + bw_sq * eye
+
+    det_term = torch.linalg.det(eye + cov / bw_sq).clamp_min(1e-300) ** (-0.5)
+    quad_term = torch.exp(-0.5 * diff @ torch.linalg.solve(A, diff))
+
+    return det_term * quad_term
+
+
+def gaussian_bump_expectation_under_gmm(center: torch.Tensor, bw: float) -> float:
+    """
+    Compute E_pi[exp(-||X - center||^2 / (2 bw^2))]
+    where pi is the target GMM.
+    """
+    val = torch.zeros((), device=center.device, dtype=center.dtype)
+    for k in range(N_COMPONENTS):
+        val = val + gmm_weights[k] * gaussian_bump_expectation_under_gaussian(
+            center=center,
+            mean=gmm_means[k],
+            cov=gmm_covs[k],
+            bw=bw,
+        )
+    return val.item()
+
+
+def make_gaussian_bump(center: torch.Tensor, bw: float):
+    """
+    Return a vectorized test function evaluated on particles of shape (M, d).
+    """
+    center = center.clone()
+    bw_sq = bw ** 2
+
+    def bump(pts: torch.Tensor) -> torch.Tensor:
+        return torch.exp(-torch.sum((pts - center) ** 2, dim=1) / (2 * bw_sq))
+
+    return bump
+
+
+# Add one Gaussian bump test function per GMM component.
+for j in range(N_COMPONENTS):
+    key = f"bump_mu{j + 1}"
+    center = gmm_means[j]
+    TRUE_INTEGRALS[key] = gaussian_bump_expectation_under_gmm(center, TEST_BUMP_BW)
+    TEST_FUNCTIONS[key] = make_gaussian_bump(center, TEST_BUMP_BW)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # METRIC HELPERS
@@ -548,7 +629,7 @@ COLOR_CYCLE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 ALGO_COLORS = {a: COLOR_CYCLE[i % len(COLOR_CYCLE)] for i, a in enumerate(ALGO_NAMES)}
 ALGO_LS = {
     "SVGD": "-",
-    "GI-ALDI": "-",
+    "GI-ALDI": "--",
     "MSIP-QG": "-",
     "MSIP-Fredholm": "-",
     "MSIP-GS-QG": "--",
@@ -578,6 +659,14 @@ METRIC_META = {
     "x2_sq": (r"$|\hat{E}[x_2^2] - E[x_2^2]|$", "integral_x2sq"),
     "x1x2": (r"$|\hat{E}[x_1 x_2] - E[x_1 x_2]|$", "integral_x1x2"),
 }
+
+# Add plotting metadata for the Gaussian bump tests.
+for j in range(N_COMPONENTS):
+    key = f"bump_mu{j + 1}"
+    METRIC_META[key] = (
+        rf"$|\hat{{E}}[f_{{\mu_{j + 1}}}] - E[f_{{\mu_{j + 1}}}]|$",
+        f"integral_bump_mu{j + 1}_tau_{BUMP_TAG}",
+    )
 
 for mk, (ylabel, filetag) in METRIC_META.items():
     fig, ax = plt.subplots(figsize=(7, 5))

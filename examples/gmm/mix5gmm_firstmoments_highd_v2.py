@@ -91,14 +91,14 @@ def normalize_nonnegative(weights: torch.Tensor) -> torch.Tensor:
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-D_VALUES = [3]
-M_VALUES = [5, 20]
+D_VALUES = [5]
+M_VALUES = [5,20]
 R_RUNS = 10
 N_STEPS = 500
 
-LR_SVGD = 0.8
+LR_SVGD = 0.1
 LR_ALDI = 0.005 / 3
-LR_MSIP = 0.8
+LR_MSIP = 0.1
 
 # If SCALE_KERNEL_WITH_DIM=True, the effective bandwidth is KERNEL_LS_BASE * sqrt(d).
 # If False, the effective bandwidth is KERNEL_LS_BASE for all d.
@@ -123,7 +123,7 @@ TARGET_COV_SCALE = 0.5
 # means INIT_ALPHA * e_i. Setting INIT_ALPHA = MODE_SEPARATION_ALPHA initializes
 # particles around the same five locations as the target; changing it gives a
 # controlled mismatch while preserving the same axis-aligned geometry.
-INIT_ALPHA = 0.0
+INIT_ALPHA = 20.0
 #MODE_SEPARATION_ALPHA
 BASE_SEED = 314159
 
@@ -454,19 +454,24 @@ def integral_error(fname, particles, weights=None):
 # SINGLE-RUN RUNNER
 # ══════════════════════════════════════════════════════════════════════════════
 
+# def make_init_particles(M: int, d: int):
+#     """
+#     Initialize particles from the same five-axis geometry as the target:
+#     choose a component k uniformly and sample around INIT_ALPHA * e_k.
+#     """
+#     if d < N_COMPONENTS:
+#         raise ValueError(f"Initialization requires d >= {N_COMPONENTS}; got d={d}.")
+
+#     comp_ids = torch.randint(low=0, high=N_COMPONENTS, size=(M,))
+#     means = torch.zeros((M, d), dtype=torch.get_default_dtype())
+#     means[torch.arange(M), comp_ids] = INIT_ALPHA
+#     return means + INIT_STD * torch.randn((M, d))
+
+
 def make_init_particles(M: int, d: int):
-    """
-    Initialize particles from the same five-axis geometry as the target:
-    choose a component k uniformly and sample around INIT_ALPHA * e_k.
-    """
-    if d < N_COMPONENTS:
-        raise ValueError(f"Initialization requires d >= {N_COMPONENTS}; got d={d}.")
-
-    comp_ids = torch.randint(low=0, high=N_COMPONENTS, size=(M,))
-    means = torch.zeros((M, d), dtype=torch.get_default_dtype())
-    means[torch.arange(M), comp_ids] = INIT_ALPHA
-    return means + INIT_STD * torch.randn((M, d))
-
+    mu = torch.zeros((d,), dtype=torch.get_default_dtype())
+    mu[0] = INIT_ALPHA
+    return mu + INIT_STD * torch.randn((M, d))
 
 def run_one(M: int, seed: int, d: int) -> dict:
     torch.manual_seed(seed)
