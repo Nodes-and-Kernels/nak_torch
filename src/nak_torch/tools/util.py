@@ -1,10 +1,12 @@
 import torch
 from torch import Tensor
 from jaxtyping import Float
-from typing import Optional, Callable
+from typing import Iterable, Optional, Callable, TypeVar
 from .types import BatchGradLogDensity, BatchPtType, DeviceLike
 import numpy as np
 import inspect
+
+__all__ = ["sym_sqrtm", "quantile_distance", "infinite_iter"]
 
 
 def sym_sqrtm(A: Float[Tensor, "n n"], use_inv: bool = False):
@@ -88,3 +90,12 @@ def quantile_distance(pts: BatchPtType, quantile: float = 0.5) -> Float:
     )
     diffs_list = diffs[diffs_idxs[0], diffs_idxs[1]]
     return torch.quantile(diffs_list, quantile)
+
+
+IterType = TypeVar("IterType")
+
+
+def infinite_iter(iterable: Iterable[IterType]):
+    while True:
+        for x in iter(iterable):
+            yield x
