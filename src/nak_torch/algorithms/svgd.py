@@ -10,7 +10,7 @@ from dataclasses import astuple, dataclass
 from typing import Optional
 import torch
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
-from nak_torch.tools.kernel import default_kernel_elem
+from nak_torch.tools.kernel import DEFAULT_KERNEL_ELEM
 from nak_torch.tools.types import (
     BatchGradLogDensityEvaluator,
     BatchKernelGradValFunction,
@@ -97,7 +97,7 @@ class SVGD(
                 f"Expected kernel_lengthscale_quantile in [0,1], given {kernel_lengthscale_quantile}"
             )
         if kernel_elem is None:
-            kernel_elem = default_kernel_elem
+            kernel_elem = DEFAULT_KERNEL_ELEM
         self.default_kernel_lengthscale = (
             0.0 if kernel_lengthscale is None else kernel_lengthscale
         )

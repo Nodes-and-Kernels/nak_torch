@@ -10,7 +10,7 @@ from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from datetime import datetime
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
+from nak_torch.tools.kernel import kernel_optimal_weight_factory, DEFAULT_KERNEL_MATRIX
 
 save_gif = False
 function_name = "himmelblau"

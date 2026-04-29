@@ -15,7 +15,7 @@ from .types import (
 )
 
 __all__ = [
-    "default_kernel_matrix",
+    "DEFAULT_KERNEL_MATRIX",
     "sqexp_kernel_matrix",
     "sqexp_kernel_elem",
     "matricize_kernel_elem",
@@ -48,8 +48,8 @@ def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float
     return ret
 
 
-default_kernel_elem = sqexp_kernel_elem
-default_kernel_matrix = sqexp_kernel_matrix
+DEFAULT_KERNEL_ELEM = sqexp_kernel_elem
+DEFAULT_KERNEL_MATRIX = sqexp_kernel_matrix
 
 
 def inverse_multi_quadric_kernel_elem(
