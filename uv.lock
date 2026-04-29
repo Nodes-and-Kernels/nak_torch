@@ -1242,7 +1242,7 @@ requires-dist = [
     { name = "jaxtyping", specifier = ">=0.3.5" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.10.8" },
     { name = "numpy", specifier = ">=2.4.1" },
-    { name = "posteriordb", marker = "extra == 'examples'", specifier = ">=0.2.0" },
+    { name = "posteriordb", marker = "extra == 'examples'", git = "https://github.com/stan-dev/posteriordb-python" },
     { name = "pyro-ppl", marker = "extra == 'examples'", specifier = ">=1.9.1" },
     { name = "pystan", marker = "extra == 'examples'", git = "https://github.com/dannys4/pystan?branch=change_function_interface" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.17.1" },
@@ -1665,12 +1665,9 @@ wheels = [
 [[package]]
 name = "posteriordb"
 version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/stan-dev/posteriordb-python#929c54afec39f78df43ca370e3f9b09c4c70af65" }
 dependencies = [
     { name = "requests" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/4d/b72e0782abec07f3d8dabf24cf12673d26b173af2046eb4e67365c776ccf/posteriordb-0.2.0-py3-none-any.whl", hash = "sha256:b6d6f3a349d34db6d4a68da899c818a95e5824c5e23824fc0ebe422f4bd6bac1", size = 24059, upload-time = "2020-11-25T12:04:47.729Z" },
 ]
 
 [[package]]
