@@ -115,7 +115,7 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         v1_integrand = v1_integrand_gf + v1_integrand_gi
 
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
-            v1_integrand, quad_wts, log_v=log_dens_evals
+            v1_integrand, quad_wts, log_dens_evals
         )
         return log_v0, sigma_sq_score_v0
 

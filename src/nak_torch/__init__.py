@@ -1,6 +1,6 @@
 from . import algorithms, tools
 from .algorithms import nak
-from .tools import GaussianModel, metrics, LogisticRegressionModel
+from .tools import GaussianModel, metrics, LogisticRegressionModel, infinite_iter
 
 __all__ = [
     "algorithms",
@@ -9,4 +9,5 @@ __all__ = [
     "LogisticRegressionModel",
     "metrics",
     "nak",
+    "infinite_iter",
 ]
