@@ -1,6 +1,6 @@
 # %%
-import nest_asyncio
 import torch
+import nest_asyncio
 import nak_torch
 from nak_torch.tools import stan_tools
 from nak_torch.algorithms import MSIP, SVGD
