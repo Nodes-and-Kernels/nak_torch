@@ -59,8 +59,27 @@ torch.set_default_dtype(torch.float64)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Weight normalization
+# UTILITIES
 # ══════════════════════════════════════════════════════════════════════════════
+
+def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
+    """
+    Euclidean projection of w onto {u >= 0, sum u = z}.
+    Works for a 1D tensor w.
+    """
+    if w.ndim != 1:
+        raise ValueError("project_simplex expects a 1D tensor.")
+
+    u, _ = torch.sort(w, descending=True)
+    cssv = torch.cumsum(u, dim=0) - z
+
+    idx = torch.arange(1, w.numel() + 1, device=w.device, dtype=w.dtype)
+    cond = u - cssv / idx > 0
+
+    rho = torch.nonzero(cond, as_tuple=False)[-1, 0]
+    tau = cssv[rho] / (rho + 1).to(w.dtype)
+
+    return torch.clamp(w - tau, min=0.0)
 
 
 def normalize_nonnegative(weights: torch.Tensor) -> torch.Tensor:
@@ -69,22 +88,22 @@ def normalize_nonnegative(weights: torch.Tensor) -> torch.Tensor:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Configuration
+# CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 D_VALUES = [5]
-M_VALUES = [5,20,50]
-R_RUNS = 5
-N_STEPS = 1000
+M_VALUES = [5,20]
+R_RUNS = 10
+N_STEPS = 500
 
-LR_SVGD = 0.1
+LR_SVGD = 0.5
 LR_ALDI = 0.005 / 3
-LR_MSIP = 0.1
+LR_MSIP = 0.5
 
 # If SCALE_KERNEL_WITH_DIM=True, the effective bandwidth is KERNEL_LS_BASE * sqrt(d).
 # If False, the effective bandwidth is KERNEL_LS_BASE for all d.
 SCALE_KERNEL_WITH_DIM = False
-KERNEL_LS_BASE = 1.0
+KERNEL_LS_BASE = 0.5
 
 KERNEL_DIAG = 1e-6
 GRADIENT_DECAY = 1.0
@@ -95,10 +114,11 @@ INIT_STD = 1.0
 
 # Target component means are MODE_SEPARATION_ALPHA * e_i, i=1,...,5.
 # Increase this to make the five modes more separated.
-MODE_SEPARATION_ALPHA = 7.5
+MODE_SEPARATION_ALPHA = 5.5
 
 # Covariance of each target Gaussian. The default is isotropic.
 TARGET_COV_SCALE = 0.5
+ANISOTROPY_FACTOR = 0.2
 
 # Initialization: particles are initialized from a five-component mixture with
 # means INIT_ALPHA * e_i. Setting INIT_ALPHA = MODE_SEPARATION_ALPHA initializes
@@ -160,8 +180,20 @@ def make_axis_gmm(d: int, alpha: float = MODE_SEPARATION_ALPHA):
     for k in range(N_COMPONENTS):
         means[k, k] = alpha
 
-    eye = torch.eye(d, dtype=torch.get_default_dtype())
-    covs = TARGET_COV_SCALE * eye.unsqueeze(0).repeat(N_COMPONENTS, 1, 1)
+    #eye = torch.eye(d, dtype=torch.get_default_dtype())
+    #covs = TARGET_COV_SCALE * eye.unsqueeze(0).repeat(N_COMPONENTS, 1, 1)
+
+    # Diagonal anisotropic covariances.
+    # Each component has one distinguished axis with larger variance;
+    # all other directions keep variance TARGET_COV_SCALE.
+    ANISOTROPY_FACTOR = 3.0  # try 2.0, 3.0, 5.0
+    
+    covs = TARGET_COV_SCALE * torch.eye(d, dtype=torch.get_default_dtype()).unsqueeze(0).repeat(
+        N_COMPONENTS, 1, 1
+    )
+    
+    for k in range(N_COMPONENTS):
+        covs[k, k, k] = ANISOTROPY_FACTOR * TARGET_COV_SCALE
 
     return means, covs
 
@@ -213,7 +245,7 @@ def setup_gmm(d: int):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Target log density
+# TARGET LOG DENSITY
 # ══════════════════════════════════════════════════════════════════════════════
 
 def post_log_dens(pt: torch.Tensor):
@@ -236,7 +268,7 @@ post_log_dens_grad_val_batch = torch.vmap(post_log_dens_grad_val)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Quadrature rules
+# QUADRATURE RULES
 # ══════════════════════════════════════════════════════════════════════════════
 
 def mc_quad_rule(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
@@ -266,7 +298,7 @@ def spherical_quad(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MMD helpers
+# MMD HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gaussian_rbf_expectation(mu1, cov1, mu2, cov2, bw):
@@ -366,7 +398,7 @@ def compute_mmd_weighted(particles, weights, bw=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# KSD helpers
+# KSD HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _rbf_fn(x, y):
@@ -416,7 +448,7 @@ def compute_ksd(particles, kernel_fn):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Scalar integral error
+# SCALAR INTEGRAL ERROR
 # ══════════════════════════════════════════════════════════════════════════════
 
 def integral_error(fname, particles, weights=None):
@@ -551,7 +583,7 @@ def run_one(M: int, seed: int, d: int) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Plotting
+# PLOTTING
 # ══════════════════════════════════════════════════════════════════════════════
 
 COLOR_CYCLE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -634,7 +666,7 @@ def plot_metric(metric_data, metric_meta, d: int):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Main sweep
+# MAIN SWEEP
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():

@@ -1,26 +1,26 @@
 """
-experiment_vs_M.py
-──────────────────
-Sweeps over M (number of particles) ∈ M_VALUES.
-For each M, runs R independent initialisations of each algorithm.
+experiment_vs_M_msip_variants.py
+────────────────────────────────
+Sweeps over M (number of particles) in M_VALUES.
+For each M, runs R independent initializations of each algorithm.
 Every algorithm is run to convergence (N_STEPS).
 Metrics are evaluated at the final step only.
 
 Algorithms
 ──────────
-  SVGD | GI-ALDI | MSIP-QG (unweighted) | MSIP-QG (weighted)
-  MSIP-GMM | MSIP-GS-QG (unweighted) | MSIP-GS-QG (weighted) | MSIP-GS-GMM
+  SVGD | GI-ALDI | MSIP-QG | MSIP-GS-QG | MSIP-GMM | MSIP-GS-GMM
 
 Metrics  (all scalar)
 ─────────────────────
   MMD
   KSD-RBF, KSD-IMQ
-  |Ê[f] − E_true[f]|  for f ∈ {x₁, x₂, x₁², x₂², x₁x₂}
-  |log Ẑ|             (log normalizing constant estimate; true value = 0)
+  |Ehat[f] - E_true[f]| for f in {x1, x2, x1^2, x2^2, x1 x2}
+  Gaussian bump tests centered at the GMM means:
+      f_j(x) = exp(-||x - mu_j||^2 / (2 tau^2))
 
 Output
 ──────
-  One median+IQR figure per metric  →  vsM_{metric}_median_iqr_sigma_*.pdf
+  One median+IQR figure per metric -> vsM_{metric}_median_iqr_sigma_*.pdf
 """
 
 from functools import partial
@@ -33,7 +33,9 @@ from nak_torch.algorithms import grad_aldi, msip, msip_gs, svgd
 from nak_torch.algorithms.msip import (
     MSIPQuadGradientInformed,
     MSIPGMMGaussianKernel,
+    MSIPFredholm,
 )
+from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre, spherical_struct_radial_Laguerre
 
 # ── Device / dtype ─────────────────────────────────────────────────────────
 if torch.cuda.is_available():
@@ -43,59 +45,114 @@ else:
 
 torch.set_default_dtype(torch.float64)
 
+
+def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
+    """
+    Euclidean projection of w onto {u >= 0, sum u = z}.
+    Works for a 1D tensor w.
+    """
+    if w.ndim != 1:
+        raise ValueError("project_simplex expects a 1D tensor.")
+
+    u, _ = torch.sort(w, descending=True)
+    cssv = torch.cumsum(u, dim=0) - z
+
+    idx = torch.arange(1, w.numel() + 1, device=w.device, dtype=w.dtype)
+    cond = u - cssv / idx > 0
+
+    rho = torch.nonzero(cond, as_tuple=False)[-1, 0]
+    tau = cssv[rho] / (rho + 1).to(w.dtype)
+
+    return torch.clamp(w - tau, min=0.0)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-M_VALUES  = [5, 10, 20, 50]
-R_RUNS    = 10
-N_STEPS   = 5000
+M_VALUES = [5,10, 20, 50]
+R_RUNS = 10
+N_STEPS = 50
 
-LR_SVGD   = 0.01
-LR_ALDI   = 0.005 / 3
-LR_MSIP   = 0.01
+LR_SVGD = 0.8
+LR_ALDI = 0.005 / 3
+LR_MSIP = 0.8
 
-KERNEL_LS      = 0.5
-KERNEL_DIAG    = 1e-8
+KERNEL_LS = 0.5
+KERNEL_DIAG = 1e-6
 GRADIENT_DECAY = 1.0
-BOUNDS_MSIP    = (-1000.0, 1000.0)
-N_QUAD         = 5
+BOUNDS_MSIP = (-1000.0, 1000.0)
+N_QUAD = 1
 
-INIT_MEAN = torch.tensor([8.0, 8.0])
-INIT_STD  = 1.0
+INIT_MEAN = torch.tensor([15.0, 15.0])
+INIT_STD = 1.0
 BASE_SEED = 314159
 SIGMA_TAG = str(KERNEL_LS)
 
+# Gaussian bump diagnostic bandwidth.
+# The test function is
+#     f_j(x) = exp(-||x - mu_j||^2 / (2 TEST_BUMP_BW^2)),
+# where mu_j is the j-th GMM component mean.
+# Equivalently, TEST_BUMP_VAR is the variance parameter tau^2.
+TEST_BUMP_BW = 1.0
+TEST_BUMP_VAR = TEST_BUMP_BW ** 2
+BUMP_TAG = str(TEST_BUMP_BW)
+
 # ══════════════════════════════════════════════════════════════════════════════
-# TARGET: 3-COMPONENT GMM
+# TARGET: 5-COMPONENT GMM
 # ══════════════════════════════════════════════════════════════════════════════
 
-gmm_weights = torch.tensor([1 / 3, 1 / 3, 1 / 3])
-gmm_means   = torch.stack([
-    torch.tensor([6.2, -6.0]),
-    torch.tensor([-4.0,  5.0]),
-    torch.tensor([7.0,   0.0]),
+gmm_weights = torch.tensor([1 / 5] * 5)
+
+# gmm_means = torch.stack([
+#     torch.tensor([6.2, -6.0]),
+#     torch.tensor([-4.0, 5.0]),
+#     torch.tensor([7.0, 3.0]),
+#     torch.tensor([-6.5, -4.5]),
+#     torch.tensor([1.0, 7.0]),
+# ])
+
+# gmm_covs = torch.stack([
+#     0.5 * torch.tensor([[1.5, 0.1], [0.1, 0.5]]),
+#     0.5 * torch.tensor([[2.0, -0.6], [-0.6, 0.5]]),
+#     0.5 * torch.tensor([[0.7, 0.4], [0.4, 1.2]]),
+#     0.5 * torch.tensor([[1.3, -0.5], [-0.5, 0.9]]),
+#     0.5 * torch.tensor([[0.6, 0.35], [0.35, 1.6]]),
+# ])
+
+gmm_means = torch.stack([
+    2* torch.tensor([ 6.2, -6.0]),
+    2* torch.tensor([-4.0,  5.0]),
+    2* torch.tensor([ 7.0,  3.0]),
+    2* torch.tensor([-6.5, -4.5]),
+    2* torch.tensor([ 1.0,  7.0]),
 ])
+
 gmm_covs = torch.stack([
-    0.5*torch.tensor([[1.5,  0.1],
-                  [0.1,  0.5]]),
+     torch.tensor([[1.5,  0.1],
+                        [0.1,  0.5]]),
 
-    0.5*torch.tensor([[2.0, -0.6],
-                  [-0.6, 0.5]]),
+     torch.tensor([[2.0, -0.6],
+                        [-0.6, 0.5]]),
 
-    0.5*torch.tensor([[0.7,  0.4],
-                  [0.4,  1.2]])
+     torch.tensor([[0.7,  0.4],
+                        [0.4,  1.2]]),
+
+     torch.tensor([[1.3, -0.5],
+                        [-0.5, 0.9]]),
+
+     torch.tensor([[0.6,  0.35],
+                        [0.35, 1.6]]),
 ])
-gmm_precisions = torch.linalg.inv(gmm_covs)
-gmm_logdets    = torch.stack([torch.logdet(cov) for cov in gmm_covs])
 
+gmm_precisions = torch.linalg.inv(gmm_covs)
+gmm_logdets = torch.stack([torch.logdet(cov) for cov in gmm_covs])
 LOG_2PI = torch.log(torch.tensor(2.0 * np.pi, dtype=torch.get_default_dtype()))
 
 
 def post_log_dens(pt):
     """
-    Correct log density of the Gaussian mixture, including normalization
-    constants for each component.
+    Correct normalized log density of the Gaussian mixture.
     Supports pt of shape (..., 2).
     """
     d = gmm_means.shape[1]
@@ -108,16 +165,39 @@ def post_log_dens(pt):
     return torch.stack(log_probs, dim=-1).logsumexp(dim=-1)
 
 
-post_log_dens_grad_val       = torch.func.grad_and_value(post_log_dens)
+post_log_dens_grad_val = torch.func.grad_and_value(post_log_dens)
 post_log_dens_grad_val_batch = torch.vmap(post_log_dens_grad_val)
 
+# ── Quadrature rules ────────────────────────────────────────────────────────
 
-# ── Quadrature rule ─────────────────────────────────────────────────────────
+
+
+
+
+
 def mc_quad_rule(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
     pts = torch.randn((batch_size, N_quad, dim))
     wts = torch.ones((batch_size, N_quad)).div_(N_quad)
     return pts, wts
 
+
+def spherical_quad_(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
+    dimension = dim
+    N_spherical = 2 * dimension
+    N_radial = max(1, int(N_quad / N_spherical))
+    pts, wts = spherical_MC_radial_Laguerre(
+        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+    )
+    return pts, wts
+
+def spherical_quad(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
+    dimension = dim
+    N_spherical = 2 * dimension
+    N_radial = max(1, int(N_quad / N_spherical))
+    pts, wts = spherical_struct_radial_Laguerre(
+        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+    )
+    return pts, wts
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TRUE GMM INTEGRALS  (closed form)
@@ -126,27 +206,108 @@ def mc_quad_rule(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
 # E[x_i^2]   = sum_k w_k * (Sigma_k[i,i] + mu_k[i]^2)
 # E[x_1 x_2] = sum_k w_k * (Sigma_k[0,1] + mu_k[0]*mu_k[1])
 
+N_COMPONENTS = len(gmm_weights)
+
 TRUE_INTEGRALS = {
-    "x1":    sum(gmm_weights[k].item() * gmm_means[k][0].item()
-                 for k in range(3)),
-    "x2":    sum(gmm_weights[k].item() * gmm_means[k][1].item()
-                 for k in range(3)),
-    "x1_sq": sum(gmm_weights[k].item() * (gmm_covs[k][0, 0] + gmm_means[k][0] ** 2).item()
-                 for k in range(3)),
-    "x2_sq": sum(gmm_weights[k].item() * (gmm_covs[k][1, 1] + gmm_means[k][1] ** 2).item()
-                 for k in range(3)),
-    "x1x2":  sum(gmm_weights[k].item() * (gmm_covs[k][0, 1] + gmm_means[k][0] * gmm_means[k][1]).item()
-                 for k in range(3)),
+    "x1": sum(
+        gmm_weights[k].item() * gmm_means[k][0].item()
+        for k in range(N_COMPONENTS)
+    ),
+    "x2": sum(
+        gmm_weights[k].item() * gmm_means[k][1].item()
+        for k in range(N_COMPONENTS)
+    ),
+    "x1_sq": sum(
+        gmm_weights[k].item() * (gmm_covs[k][0, 0] + gmm_means[k][0] ** 2).item()
+        for k in range(N_COMPONENTS)
+    ),
+    "x2_sq": sum(
+        gmm_weights[k].item() * (gmm_covs[k][1, 1] + gmm_means[k][1] ** 2).item()
+        for k in range(N_COMPONENTS)
+    ),
+    "x1x2": sum(
+        gmm_weights[k].item()
+        * (gmm_covs[k][0, 1] + gmm_means[k][0] * gmm_means[k][1]).item()
+        for k in range(N_COMPONENTS)
+    ),
 }
 
-# Scalar test functions  f: (N, 2) → (N,)
 TEST_FUNCTIONS = {
-    "x1":    lambda pts: pts[:, 0],
-    "x2":    lambda pts: pts[:, 1],
+    "x1": lambda pts: pts[:, 0],
+    "x2": lambda pts: pts[:, 1],
     "x1_sq": lambda pts: pts[:, 0] ** 2,
     "x2_sq": lambda pts: pts[:, 1] ** 2,
-    "x1x2":  lambda pts: pts[:, 0] * pts[:, 1],
+    "x1x2": lambda pts: pts[:, 0] * pts[:, 1],
 }
+
+
+# ── Gaussian bump diagnostics ───────────────────────────────────────────────
+# For each GMM component mean mu_j, add
+#     f_j(x) = exp(-||x - mu_j||^2 / (2 tau^2)).
+# The exact expectation under a Gaussian component is available in closed form:
+# if X ~ N(m, Sigma), then
+#     E f_j(X)
+#       = det(I + Sigma / tau^2)^(-1/2)
+#         exp(-1/2 (mu_j - m)^T (Sigma + tau^2 I)^(-1) (mu_j - m)).
+
+def gaussian_bump_expectation_under_gaussian(
+    center: torch.Tensor,
+    mean: torch.Tensor,
+    cov: torch.Tensor,
+    bw: float,
+) -> torch.Tensor:
+    """
+    Compute E[exp(-||X - center||^2 / (2 bw^2))]
+    for X ~ N(mean, cov).
+    """
+    d = mean.numel()
+    bw_sq = bw ** 2
+    eye = torch.eye(d, device=mean.device, dtype=mean.dtype)
+
+    diff = center - mean
+    A = cov + bw_sq * eye
+
+    det_term = torch.linalg.det(eye + cov / bw_sq).clamp_min(1e-300) ** (-0.5)
+    quad_term = torch.exp(-0.5 * diff @ torch.linalg.solve(A, diff))
+
+    return det_term * quad_term
+
+
+def gaussian_bump_expectation_under_gmm(center: torch.Tensor, bw: float) -> float:
+    """
+    Compute E_pi[exp(-||X - center||^2 / (2 bw^2))]
+    where pi is the target GMM.
+    """
+    val = torch.zeros((), device=center.device, dtype=center.dtype)
+    for k in range(N_COMPONENTS):
+        val = val + gmm_weights[k] * gaussian_bump_expectation_under_gaussian(
+            center=center,
+            mean=gmm_means[k],
+            cov=gmm_covs[k],
+            bw=bw,
+        )
+    return val.item()
+
+
+def make_gaussian_bump(center: torch.Tensor, bw: float):
+    """
+    Return a vectorized test function evaluated on particles of shape (M, d).
+    """
+    center = center.clone()
+    bw_sq = bw ** 2
+
+    def bump(pts: torch.Tensor) -> torch.Tensor:
+        return torch.exp(-torch.sum((pts - center) ** 2, dim=1) / (2 * bw_sq))
+
+    return bump
+
+
+# Add one Gaussian bump test function per GMM component.
+for j in range(N_COMPONENTS):
+    key = f"bump_mu{j + 1}"
+    center = gmm_means[j]
+    TRUE_INTEGRALS[key] = gaussian_bump_expectation_under_gmm(center, TEST_BUMP_BW)
+    TEST_FUNCTIONS[key] = make_gaussian_bump(center, TEST_BUMP_BW)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -158,11 +319,11 @@ def normalize_nonnegative(weights):
     return w / w.sum().clamp_min(1e-300)
 
 
-# ── MMD (correct closed-form GMM cross-term for RBF kernel) ─────────────────
+# ── MMD closed-form GMM terms for RBF kernel ────────────────────────────────
 def gaussian_rbf_expectation(mu1, cov1, mu2, cov2, bw):
     """
     E[exp(-||X-Y||^2 / (2 bw^2))] for independent Gaussians
-    X ~ N(mu1, cov1), Y ~ N(mu2, cov2)
+    X ~ N(mu1, cov1), Y ~ N(mu2, cov2).
     """
     d = mu1.numel()
     sigma_sq = bw ** 2
@@ -172,35 +333,32 @@ def gaussian_rbf_expectation(mu1, cov1, mu2, cov2, bw):
     diff = mu1 - mu2
 
     det_term = torch.linalg.det(eye + S / sigma_sq).clamp_min(1e-300) ** (-0.5)
-    quad_term = torch.exp(
-        -0.5 * diff @ torch.linalg.solve(S + sigma_sq * eye, diff)
-    )
+    quad_term = torch.exp(-0.5 * diff @ torch.linalg.solve(S + sigma_sq * eye, diff))
     return det_term * quad_term
 
 
 def _gmm_rbf_cross(particles, bw):
     """
     Returns:
-      Epp = E_{X,X'~p}[k(X,X')]
-      Exp = E_{X~emp, Y~p}[k(X,Y)]
-    for the RBF kernel k(x,y)=exp(-||x-y||^2/(2 bw^2)).
+      Epp = E_{X,X'~pi}[k(X,X')]
+      Exp = E_{X~emp, Y~pi}[k(X,Y)]
+    for k(x,y)=exp(-||x-y||^2/(2 bw^2)).
     """
     d = particles.shape[1]
     sigma_sq = bw ** 2
     eye = torch.eye(d, device=particles.device, dtype=particles.dtype)
 
     Epp = torch.zeros((), device=particles.device, dtype=particles.dtype)
-    for j in range(len(gmm_weights)):
-        for l in range(len(gmm_weights)):
-            Epp = Epp + gmm_weights[j] * gmm_weights[l] * gaussian_rbf_expectation(
-                gmm_means[j], gmm_covs[j], gmm_means[l], gmm_covs[l], bw
+    for j in range(N_COMPONENTS):
+        for ell in range(N_COMPONENTS):
+            Epp = Epp + gmm_weights[j] * gmm_weights[ell] * gaussian_rbf_expectation(
+                gmm_means[j], gmm_covs[j], gmm_means[ell], gmm_covs[ell], bw
             )
 
     Exp = torch.zeros((), device=particles.device, dtype=particles.dtype)
-    for k in range(len(gmm_weights)):
+    for k in range(N_COMPONENTS):
         diff = particles - gmm_means[k]
         A = gmm_covs[k] + sigma_sq * eye
-
         det_term = torch.linalg.det(eye + gmm_covs[k] / sigma_sq).clamp_min(1e-300) ** (-0.5)
         quad = torch.einsum("ni,ij,nj->n", diff, torch.linalg.inv(A), diff)
         Exp = Exp + gmm_weights[k] * (det_term * torch.exp(-0.5 * quad)).mean()
@@ -208,16 +366,24 @@ def _gmm_rbf_cross(particles, bw):
     return Epp, Exp
 
 
-def compute_mmd(particles, bw=KERNEL_LS):
-    Kxx = torch.exp(
-        -torch.cdist(particles, particles).pow(2) / (2 * bw ** 2)
-    ).mean()
+def compute_mmd(particles, bw=KERNEL_LS, unbiased=False):
+    K = torch.exp(-torch.cdist(particles, particles).pow(2) / (2 * bw ** 2))
+    n = particles.shape[0]
+
+    if unbiased and n > 1:
+        Kxx = (K.sum() - K.diag().sum()) / (n * (n - 1))
+    else:
+        Kxx = K.mean()
+
     Epp, Exp = _gmm_rbf_cross(particles, bw)
     return (Kxx + Epp - 2 * Exp).clamp(min=0.0).sqrt().item()
 
 
 def compute_mmd_weighted(particles, weights, bw=KERNEL_LS):
+    # Weighted MMD uses the weighted V-statistic. This is natural for signed/weighted designs
+    # after clipping to nonnegative weights.
     w = normalize_nonnegative(weights)
+    #w = project_simplex(weights)
 
     K = torch.exp(-torch.cdist(particles, particles).pow(2) / (2 * bw ** 2))
     Kxx = (K * w[:, None] * w[None, :]).sum()
@@ -227,17 +393,16 @@ def compute_mmd_weighted(particles, weights, bw=KERNEL_LS):
     eye = torch.eye(d, device=particles.device, dtype=particles.dtype)
 
     Epp = torch.zeros((), device=particles.device, dtype=particles.dtype)
-    for j in range(len(gmm_weights)):
-        for l in range(len(gmm_weights)):
-            Epp = Epp + gmm_weights[j] * gmm_weights[l] * gaussian_rbf_expectation(
-                gmm_means[j], gmm_covs[j], gmm_means[l], gmm_covs[l], bw
+    for j in range(N_COMPONENTS):
+        for ell in range(N_COMPONENTS):
+            Epp = Epp + gmm_weights[j] * gmm_weights[ell] * gaussian_rbf_expectation(
+                gmm_means[j], gmm_covs[j], gmm_means[ell], gmm_covs[ell], bw
             )
 
     Exp_w = torch.zeros((), device=particles.device, dtype=particles.dtype)
-    for k in range(len(gmm_weights)):
+    for k in range(N_COMPONENTS):
         diff = particles - gmm_means[k]
         A = gmm_covs[k] + sigma_sq * eye
-
         det_term = torch.linalg.det(eye + gmm_covs[k] / sigma_sq).clamp_min(1e-300) ** (-0.5)
         quad = torch.einsum("ni,ij,nj->n", diff, torch.linalg.inv(A), diff)
         kvals = det_term * torch.exp(-0.5 * quad)
@@ -250,12 +415,14 @@ def compute_mmd_weighted(particles, weights, bw=KERNEL_LS):
 def _rbf_fn(x, y):
     return torch.exp(-((x - y) ** 2).sum() / (2 * KERNEL_LS ** 2))
 
+
 def _imq_fn(x, y):
     return (1.0 + ((x - y) ** 2).sum()) ** (-0.5)
 
 
 def compute_ksd(particles, kernel_fn):
-    n        = particles.shape[0]
+    # Unweighted KSD. For weighted MSIP variants, this evaluates only the final support points.
+    n = particles.shape[0]
     grads, _ = post_log_dens_grad_val_batch(particles)
 
     xi = particles.unsqueeze(1).expand(n, n, -1).reshape(n * n, -1)
@@ -263,7 +430,7 @@ def compute_ksd(particles, kernel_fn):
     si = grads.unsqueeze(1).expand(n, n, -1).reshape(n * n, -1)
     sj = grads.unsqueeze(0).expand(n, n, -1).reshape(n * n, -1)
 
-    k_vals    = torch.vmap(kernel_fn)(xi, xj)
+    k_vals = torch.vmap(kernel_fn)(xi, xj)
     grad_xi_k = torch.vmap(torch.func.grad(kernel_fn, argnums=0))(xi, xj)
     grad_xj_k = torch.vmap(torch.func.grad(kernel_fn, argnums=1))(xi, xj)
 
@@ -285,39 +452,16 @@ def compute_ksd(particles, kernel_fn):
     return h.reshape(n, n)[mask].sum().div(n * (n - 1)).clamp(min=0.0).sqrt().item()
 
 
-# ── log Z error ──────────────────────────────────────────────────────────────
-def log_Z_error(particles, weights=None):
-    """
-    |log Ẑ|  using the normalized log density (true value = log 1 = 0).
-
-    Unweighted:  log Ẑ = logsumexp(log p(xᵢ)) − log M
-    Weighted:    log Ẑ = logsumexp(log wᵢ + log p(xᵢ))
-                 (weights clamped non-negative and renormalized first)
-    """
-    log_p = post_log_dens(particles)              # shape (M,)
-
-    if weights is None:
-        M = particles.shape[0]
-        log_z_est = torch.logsumexp(log_p, dim=0) - torch.log(
-            torch.tensor(float(M), dtype=log_p.dtype, device=log_p.device)
-        )
-    else:
-        w = normalize_nonnegative(weights)
-        log_z_est = torch.logsumexp(torch.log(w.clamp_min(1e-300)) + log_p, dim=0)
-
-    return abs(log_z_est.item())
-
-
-
+# ── Scalar integral error ───────────────────────────────────────────────────
 def integral_error(fname, particles, weights=None):
     vals = TEST_FUNCTIONS[fname](particles)
     if weights is not None:
         w = normalize_nonnegative(weights)
+        #w = project_simplex(weights)
         est = (w * vals).sum().item()
     else:
         est = vals.mean().item()
     return abs(est - TRUE_INTEGRALS[fname])
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SINGLE-RUN RUNNER
@@ -326,14 +470,11 @@ def integral_error(fname, particles, weights=None):
 ALGO_NAMES = [
     "SVGD",
     "GI-ALDI",
-    "MSIP-QG (uw)",
-    "MSIP-QG (w)",
-    "MSIP-GMM (uw)",
-    "MSIP-GMM (w)",
-    "MSIP-GS-QG (uw)",
-    "MSIP-GS-QG (w)",
-    "MSIP-GS-GMM (uw)",
-    "MSIP-GS-GMM (w)",
+    "MSIP-Fredholm",
+    "MSIP-QG",
+    "MSIP-GS-QG",
+    "MSIP-GMM",
+    "MSIP-GS-GMM",
 ]
 
 
@@ -342,7 +483,6 @@ def run_one(M: int, seed: int) -> dict:
     init_p = INIT_MEAN + INIT_STD * torch.randn((M, 2))
     results = {}
 
-    # ── SVGD ──────────────────────────────────────────────────────────────
     traj = svgd(
         post_log_dens, M, N_STEPS, dim=2,
         lr=LR_SVGD, init_particles=init_p,
@@ -351,7 +491,6 @@ def run_one(M: int, seed: int) -> dict:
     )
     results["SVGD"] = (traj[-1], None)
 
-    # ── GI-ALDI ───────────────────────────────────────────────────────────
     traj = grad_aldi(
         post_log_dens, M, N_STEPS, dim=2,
         lr=LR_ALDI, init_particles=init_p,
@@ -359,7 +498,6 @@ def run_one(M: int, seed: int) -> dict:
     )
     results["GI-ALDI"] = (traj[-1], None)
 
-    # ── MSIP-QG ───────────────────────────────────────────────────────────
     msip_qg = MSIPQuadGradientInformed(
         post_log_dens_grad_val_batch,
         partial(mc_quad_rule, N_quad=N_QUAD),
@@ -373,26 +511,8 @@ def run_one(M: int, seed: int) -> dict:
         bounds=BOUNDS_MSIP,
         keep_all=False, compile_step=False, verbose=False,
     )
-    results["MSIP-QG (uw)"] = (traj[-1], None)
-    results["MSIP-QG (w)"]  = (traj[-1], wts[-1])
+    results["MSIP-QG"] = (traj[-1], wts[-1])
 
-    # ── MSIP-GMM ──────────────────────────────────────────────────────────
-    msip_gmm = MSIPGMMGaussianKernel(
-        weights=gmm_weights, means=gmm_means,
-        covariances=gmm_covs, bandwidth=KERNEL_LS,
-    )
-    traj, wts = msip(
-        msip_gmm, M, N_STEPS, dim=2,
-        lr=LR_MSIP, init_particles=init_p,
-        kernel_length_scale=KERNEL_LS,
-        kernel_diag_infl=KERNEL_DIAG,
-        bounds=BOUNDS_MSIP,
-        keep_all=False, compile_step=False, verbose=False,
-    )
-    results["MSIP-GMM (uw)"] = (traj[-1], None)
-    results["MSIP-GMM (w)"]  = (traj[-1], wts[-1])
-
-    # ── MSIP-GS-QG ────────────────────────────────────────────────────────
     msip_gs_qg = MSIPQuadGradientInformed(
         post_log_dens_grad_val_batch,
         partial(mc_quad_rule, N_quad=N_QUAD),
@@ -406,13 +526,29 @@ def run_one(M: int, seed: int) -> dict:
         bounds=BOUNDS_MSIP,
         keep_all=False, compile_step=False, verbose=False,
     )
-    results["MSIP-GS-QG (uw)"] = (traj[-1], None)
-    results["MSIP-GS-QG (w)"]  = (traj[-1], wts[-1])
+    results["MSIP-GS-QG"] = (traj[-1], wts[-1])
 
-    # ── MSIP-GS-GMM ───────────────────────────────────────────────────────
+    msip_gmm = MSIPGMMGaussianKernel(
+        weights=gmm_weights,
+        means=gmm_means,
+        covariances=gmm_covs,
+        bandwidth=KERNEL_LS,
+    )
+    traj, wts = msip(
+        msip_gmm, M, N_STEPS, dim=2,
+        lr=LR_MSIP, init_particles=init_p,
+        kernel_length_scale=KERNEL_LS,
+        kernel_diag_infl=KERNEL_DIAG,
+        bounds=BOUNDS_MSIP,
+        keep_all=False, compile_step=False, verbose=False,
+    )
+    results["MSIP-GMM"] = (traj[-1], wts[-1])
+
     msip_gs_gmm = MSIPGMMGaussianKernel(
-        weights=gmm_weights, means=gmm_means,
-        covariances=gmm_covs, bandwidth=KERNEL_LS,
+        weights=gmm_weights,
+        means=gmm_means,
+        covariances=gmm_covs,
+        bandwidth=KERNEL_LS,
     )
     traj, wts = msip_gs(
         msip_gs_gmm, M, N_STEPS, dim=2,
@@ -422,11 +558,20 @@ def run_one(M: int, seed: int) -> dict:
         bounds=BOUNDS_MSIP,
         keep_all=False, compile_step=False, verbose=False,
     )
-    results["MSIP-GS-GMM (uw)"] = (traj[-1], None)
-    results["MSIP-GS-GMM (w)"]  = (traj[-1], wts[-1])
+    results["MSIP-GS-GMM"] = (traj[-1], wts[-1])
+    
+    msip_fredholm = MSIPFredholm(GRADIENT_DECAY, post_log_dens_grad_val_batch)
+    traj, wts = msip(
+        msip_fredholm, M, N_STEPS, dim=2,
+        lr=LR_MSIP, init_particles=init_p,
+        kernel_length_scale=KERNEL_LS,
+        kernel_diag_infl=KERNEL_DIAG,
+        bounds=BOUNDS_MSIP,
+        keep_all=False, compile_step=False, verbose=False,
+    )
+    results["MSIP-Fredholm"] = (traj[-1], wts[-1])
 
     return results
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN SWEEP
@@ -434,20 +579,20 @@ def run_one(M: int, seed: int) -> dict:
 
 raw_results = {}
 for M in M_VALUES:
-    print(f"\n{'='*60}\n  M = {M} particles\n{'='*60}")
+    print(f"\n{'=' * 60}\n  M = {M} particles\n{'=' * 60}")
     raw_results[M] = []
     for r in range(R_RUNS):
         seed = BASE_SEED + M * 10_000 + r * 997
-        print(f"  run {r+1}/{R_RUNS}  (seed={seed})", flush=True)
+        print(f"  run {r + 1}/{R_RUNS}  (seed={seed})", flush=True)
         raw_results[M].append(run_one(M, seed))
 
 print("\nSimulations done. Computing metrics …")
 
-# ── Collect metrics ──────────────────────────────────────────────────────────
+# ── Collect metrics ─────────────────────────────────────────────────────────
 
-INTEGRAL_KEYS   = list(TEST_FUNCTIONS.keys())
+INTEGRAL_KEYS = list(TEST_FUNCTIONS.keys())
 DIVERGENCE_KEYS = ["mmd", "ksd_rbf", "ksd_imq"]
-ALL_METRIC_KEYS = DIVERGENCE_KEYS + INTEGRAL_KEYS + ["log_z"]
+ALL_METRIC_KEYS = DIVERGENCE_KEYS + INTEGRAL_KEYS
 
 metric_data = {
     mk: {algo: np.full((len(M_VALUES), R_RUNS), np.nan) for algo in ALGO_NAMES}
@@ -459,22 +604,20 @@ for mi, M in enumerate(M_VALUES):
         run = raw_results[M][r]
         for algo in ALGO_NAMES:
             pts, wts = run[algo]
-            is_w     = wts is not None
+            is_w = wts is not None
 
             metric_data["mmd"][algo][mi, r] = (
                 compute_mmd_weighted(pts, wts) if is_w else compute_mmd(pts)
             )
             metric_data["ksd_rbf"][algo][mi, r] = compute_ksd(pts, _rbf_fn)
             metric_data["ksd_imq"][algo][mi, r] = compute_ksd(pts, _imq_fn)
+
             for fk in INTEGRAL_KEYS:
                 metric_data[fk][algo][mi, r] = integral_error(
                     fk, pts, wts if is_w else None
                 )
-            metric_data["log_z"][algo][mi, r] = log_Z_error(
-                pts, wts if is_w else None
-            )
 
-        print(f"  M={M}, run {r+1}/{R_RUNS} metrics done.", flush=True)
+        print(f"  M={M}, run {r + 1}/{R_RUNS} metrics done.", flush=True)
 
 print("All metrics computed. Generating figures …")
 
@@ -483,88 +626,64 @@ print("All metrics computed. Generating figures …")
 # ══════════════════════════════════════════════════════════════════════════════
 
 COLOR_CYCLE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-# Assign colours by algorithm family so paired variants share a hue
-_FAMILY_COLORS = {
-    "SVGD":        COLOR_CYCLE[0],
-    "GI-ALDI":     COLOR_CYCLE[1],
-    "MSIP-QG":     COLOR_CYCLE[2],
-    "MSIP-GMM":    COLOR_CYCLE[3],
-    "MSIP-GS-QG":  COLOR_CYCLE[4],
-    "MSIP-GS-GMM": COLOR_CYCLE[5],
-}
-
-ALGO_COLORS = {
-    "SVGD":             _FAMILY_COLORS["SVGD"],
-    "GI-ALDI":          _FAMILY_COLORS["GI-ALDI"],
-    "MSIP-QG (uw)":     _FAMILY_COLORS["MSIP-QG"],
-    "MSIP-QG (w)":      _FAMILY_COLORS["MSIP-QG"],
-    "MSIP-GMM (uw)":    _FAMILY_COLORS["MSIP-GMM"],
-    "MSIP-GMM (w)":     _FAMILY_COLORS["MSIP-GMM"],
-    "MSIP-GS-QG (uw)":  _FAMILY_COLORS["MSIP-GS-QG"],
-    "MSIP-GS-QG (w)":   _FAMILY_COLORS["MSIP-GS-QG"],
-    "MSIP-GS-GMM (uw)": _FAMILY_COLORS["MSIP-GS-GMM"],
-    "MSIP-GS-GMM (w)":  _FAMILY_COLORS["MSIP-GS-GMM"],
-}
-
-# Unweighted variants use dashed lines; weighted use solid
+ALGO_COLORS = {a: COLOR_CYCLE[i % len(COLOR_CYCLE)] for i, a in enumerate(ALGO_NAMES)}
 ALGO_LS = {
-    "SVGD":             "-",
-    "GI-ALDI":          "-",
-    "MSIP-QG (uw)":     "--",
-    "MSIP-QG (w)":      "-",
-    "MSIP-GMM (uw)":    "--",
-    "MSIP-GMM (w)":     "-",
-    "MSIP-GS-QG (uw)":  "--",
-    "MSIP-GS-QG (w)":   "-",
-    "MSIP-GS-GMM (uw)": "--",
-    "MSIP-GS-GMM (w)":  "-",
+    "SVGD": "-",
+    "GI-ALDI": "--",
+    "MSIP-QG": "-",
+    "MSIP-Fredholm": "-",
+    "MSIP-GS-QG": "--",
+    "MSIP-GMM": "-",
+    "MSIP-GS-GMM": "--",
 }
-
 ALGO_MARKER = {
-    "SVGD":             "o",
-    "GI-ALDI":          "s",
-    "MSIP-QG (uw)":     "D",
-    "MSIP-QG (w)":      "D",
-    "MSIP-GMM (uw)":    "^",
-    "MSIP-GMM (w)":     "^",
-    "MSIP-GS-QG (uw)":  "v",
-    "MSIP-GS-QG (w)":   "v",
-    "MSIP-GS-GMM (uw)": "P",
-    "MSIP-GS-GMM (w)":  "P",
+    "SVGD": "o",
+    "GI-ALDI": "s",
+    "MSIP-QG": "D",
+    "MSIP-GS-QG": "D",
+    "MSIP-Fredholm": "v",   
+    "MSIP-GMM": "^",
+    "MSIP-GS-GMM": "^",
 }
 
 M_arr = np.array(M_VALUES, dtype=float)
 PLOT_EPS = 1e-16
 
 METRIC_META = {
-    "mmd"    : ("MMD (RBF kernel)",                       "MMD"),
-    "ksd_rbf": ("KSD (RBF kernel)",                       "KSD_RBF"),
-    "ksd_imq": ("KSD (IMQ kernel)",                       "KSD_IMQ"),
-    "x1"     : (r"$|\hat{E}[x_1] - E[x_1]|$",            "integral_x1"),
-    "x2"     : (r"$|\hat{E}[x_2] - E[x_2]|$",            "integral_x2"),
-    "x1_sq"  : (r"$|\hat{E}[x_1^2] - E[x_1^2]|$",        "integral_x1sq"),
-    "x2_sq"  : (r"$|\hat{E}[x_2^2] - E[x_2^2]|$",        "integral_x2sq"),
-    "x1x2"   : (r"$|\hat{E}[x_1 x_2] - E[x_1 x_2]|$",   "integral_x1x2"),
-    "log_z"  : (r"$|\log \hat{Z}|$",                              "log_Z"),
+    "mmd": ("MMD (RBF kernel)", "MMD"),
+    "ksd_rbf": ("KSD (RBF kernel)", "KSD_RBF"),
+    "ksd_imq": ("KSD (IMQ kernel)", "KSD_IMQ"),
+    "x1": (r"$|\hat{E}[x_1] - E[x_1]|$", "integral_x1"),
+    "x2": (r"$|\hat{E}[x_2] - E[x_2]|$", "integral_x2"),
+    "x1_sq": (r"$|\hat{E}[x_1^2] - E[x_1^2]|$", "integral_x1sq"),
+    "x2_sq": (r"$|\hat{E}[x_2^2] - E[x_2^2]|$", "integral_x2sq"),
+    "x1x2": (r"$|\hat{E}[x_1 x_2] - E[x_1 x_2]|$", "integral_x1x2"),
 }
 
+# Add plotting metadata for the Gaussian bump tests.
+for j in range(N_COMPONENTS):
+    key = f"bump_mu{j + 1}"
+    METRIC_META[key] = (
+        rf"$|\hat{{E}}[f_{{\mu_{j + 1}}}] - E[f_{{\mu_{j + 1}}}]|$",
+        f"integral_bump_mu{j + 1}_tau_{BUMP_TAG}",
+    )
+
 for mk, (ylabel, filetag) in METRIC_META.items():
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(7, 5))
 
     for algo in ALGO_NAMES:
         arr = metric_data[mk][algo]
         med = np.maximum(np.median(arr, axis=1), PLOT_EPS)
-        lo  = np.maximum(np.percentile(arr, 25, axis=1), PLOT_EPS)
-        hi  = np.maximum(np.percentile(arr, 75, axis=1), PLOT_EPS)
+        lo = np.maximum(np.percentile(arr, 25, axis=1), PLOT_EPS)
+        hi = np.maximum(np.percentile(arr, 75, axis=1), PLOT_EPS)
 
         ax.loglog(
             M_arr, med,
             color=ALGO_COLORS[algo], linestyle=ALGO_LS[algo],
             linewidth=2.0, marker=ALGO_MARKER[algo], markersize=6,
-            label=algo
+            label=algo,
         )
-        ax.fill_between(M_arr, lo, hi, alpha=0.15, color=ALGO_COLORS[algo])
+        ax.fill_between(M_arr, lo, hi, alpha=0.20, color=ALGO_COLORS[algo])
 
     ax.set_xlabel("$M$  (number of particles)", fontsize=12)
     ax.set_ylabel(ylabel, fontsize=11)
@@ -574,7 +693,7 @@ for mk, (ylabel, filetag) in METRIC_META.items():
     )
     ax.set_xticks(M_arr)
     ax.set_xticklabels([str(m) for m in M_VALUES])
-    ax.legend(fontsize=8, ncol=2)
+    ax.legend(fontsize=9, ncol=2)
     plt.tight_layout()
     fname = f"vsM_{filetag}_median_iqr_sigma_{SIGMA_TAG}.pdf"
     plt.savefig(fname)

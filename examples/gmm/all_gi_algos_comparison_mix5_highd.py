@@ -66,23 +66,23 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Axis-GMM with five modes alpha e_1, ..., alpha e_5 requires d >= 5.
 D_VALUES = [5]
-M_VALUES = [150]
+M_VALUES = [50]
 
 N_STEPS = 500
 METRIC_EVERY = 10
 BASE_SEED = 314159
 
-LR_SVGD = 0.8
-LR_MSIP = 0.8
+LR_SVGD = 0.1
+LR_MSIP = 0.1
 
 SCALE_KERNEL_WITH_DIM = False
-KERNEL_LS_BASE = 0.5
+KERNEL_LS_BASE = 1.0
 KERNEL_DIAG = 1e-6
 GRADIENT_DECAY = 1.0
 BOUNDS_MSIP = (-1000.0, 1000.0)
 N_QUAD = 1
 
-MODE_SEPARATION_ALPHA = 5.0
+MODE_SEPARATION_ALPHA = 7.5
 TARGET_COV_SCALE = 0.5
 
 # Initialization: particles are initialized from the same five-axis geometry.
