@@ -22,7 +22,7 @@ nak-torch = "nak_torch:main"
 examples = [
     "ipykernel>=7.2.0",
     "matplotlib>=3.10.8",
-    "posteriordb",
+    "posteriordb>=0.2.0",
     "pyro-ppl>=1.9.1",
     "pystan",
     "scipy>=1.17.1",
@@ -59,4 +59,3 @@ ignore = ["F722"]
 
 [tool.uv.sources]
 pystan = { git = "https://github.com/dannys4/pystan", branch = "change_function_interface" }
-posteriordb = { git = "https://github.com/stan-dev/posteriordb-python" }
