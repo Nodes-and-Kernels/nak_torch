@@ -1,22 +1,41 @@
+# from functools import partial
+
+# import torch
+# import matplotlib.pyplot as plt
+
+# import nak_torch
+
+# from nak_torch.algorithms import grad_aldi, eks, msip, msip_gs, svgd
+# from nak_torch.algorithms.msip import (
+#     MSIPFredholm,
+#     MSIPQuadGradientInformed,
+#     MSIPQuadGradientFree,
+# )
+# from nak_torch.tools.metrics import CrossEntropy
+# # from nak_torch.tools.quadrature import (
+# #     spherical_MC_radial_Laguerre,
+# #     spherical_struct_radial_Laguerre,
+# # )
+# from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
+
+
+
 from functools import partial
 
 import torch
 import matplotlib.pyplot as plt
 
 import nak_torch
-from functions import himmelblau
 from nak_torch.algorithms import grad_aldi, eks, msip, msip_gs, svgd
 from nak_torch.algorithms.msip import (
     MSIPFredholm,
     MSIPQuadGradientInformed,
-    MSIPQuadGradientFree,
+    MSIPGMMGaussianKernel,
 )
+from functions import himmelblau
 from nak_torch.tools.metrics import CrossEntropy
-# from nak_torch.tools.quadrature import (
-#     spherical_MC_radial_Laguerre,
-#     spherical_struct_radial_Laguerre,
-# )
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
+
+#from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre, spherical_struct_radial_Laguerre
 
 
 # ── Device / dtype ────────────────────────────────────────────────────────────
@@ -27,6 +46,15 @@ else:
 
 torch.set_default_dtype(torch.float64)
 torch.manual_seed(314159)
+
+# # ── Device / dtype ────────────────────────────────────────────────────────────
+# if torch.cuda.is_available():
+#     torch.set_default_device("cuda")
+# else:
+#     torch.set_default_device("cpu")
+
+# torch.set_default_dtype(torch.float64)
+# torch.manual_seed(314159)
 
 
 def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
@@ -52,7 +80,7 @@ def project_simplex(w: torch.Tensor, z: float = 1.0) -> torch.Tensor:
 # ── Target: Himmelblau density ────────────────────────────────────────────────
 # Same target as your previous Himmelblau file.
 # The scalar controls concentration around the minima.
-post_log_dens = himmelblau(50.0)
+post_log_dens = himmelblau(10.0)
 
 post_log_dens_grad_val = torch.func.grad_and_value(post_log_dens)
 post_log_dens_grad_val_batch = torch.vmap(post_log_dens_grad_val)
@@ -86,10 +114,10 @@ model = nak_torch.GaussianModel(
 
 
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
-n_steps = 500
-n_particles = 100
-lr = 0.2
-lr_msip = 0.2
+n_steps = 50
+n_particles = 10
+lr = 0.1
+lr_msip = 0.1
 
 kernel_length_scale = 0.5
 kernel_diag_infl = 1e-6
@@ -109,24 +137,24 @@ def mc_quad_rule(batch_size: int, N_quad: int = 40, dim: int = 2):
     return pts, wts
 
 
-def spherical_quad_(batch_size: int, N_quad: int = 10, dim: int = 2):
-    dimension = dim
-    N_spherical = 10
-    N_radial = int(N_quad / 10)
-    pts, wts = spherical_MC_radial_Laguerre(
-        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
-    )
-    return pts, wts
+# def spherical_quad_(batch_size: int, N_quad: int = 10, dim: int = 2):
+#     dimension = dim
+#     N_spherical = 10
+#     N_radial = int(N_quad / 10)
+#     pts, wts = spherical_MC_radial_Laguerre(
+#         batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+#     )
+#     return pts, wts
 
 
-def spherical_quad(batch_size: int, N_quad: int = 40, dim: int = 2):
-    dimension = dim
-    N_spherical = 2 * dimension
-    N_radial = max(1, int(N_quad / N_spherical))
-    pts, wts = spherical_struct_radial_Laguerre(
-        batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
-    )
-    return pts, wts
+# def spherical_quad(batch_size: int, N_quad: int = 40, dim: int = 2):
+#     dimension = dim
+#     N_spherical = 2 * dimension
+#     N_radial = max(1, int(N_quad / N_spherical))
+#     pts, wts = spherical_struct_radial_Laguerre(
+#         batch_size, N_spherical, dimension, N_radial, dtype=torch.float64
+#     )
+#     return pts, wts
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -166,19 +194,19 @@ trajectories_msip_f, traj_wts_msip_f = msip(
     keep_all=True, compile_step=False, verbose=True,
 )
 
-# Gradient-free MSIP is the closest Himmelblau analogue of your previous file.
-print("=== MSIP-GF ===")
-msip_gf = MSIPQuadGradientFree(
-    post_log_dens, mc_quad_rule,
-)
-trajectories_msip_gf, traj_wts_msip_gf = msip(
-    msip_gf, n_particles, n_steps, dim=2,
-    lr=0.6, init_particles=init_particles,
-    kernel_length_scale=kernel_length_scale,
-    kernel_diag_infl=kernel_diag_infl,
-    bounds=bounds,
-    keep_all=True, compile_step=False, verbose=True,
-)
+# # Gradient-free MSIP is the closest Himmelblau analogue of your previous file.
+# print("=== MSIP-GF ===")
+# msip_gf = MSIPQuadGradientFree(
+#     post_log_dens, mc_quad_rule,
+# )
+# trajectories_msip_gf, traj_wts_msip_gf = msip(
+#     msip_gf, n_particles, n_steps, dim=2,
+#     lr=0.6, init_particles=init_particles,
+#     kernel_length_scale=kernel_length_scale,
+#     kernel_diag_infl=kernel_diag_infl,
+#     bounds=bounds,
+#     keep_all=True, compile_step=False, verbose=True,
+# )
 
 # Optional gradient-informed quadrature MSIP, kept in the same style as file 1.
 # print("=== MSIP-QG ===")
@@ -206,7 +234,7 @@ algo_trajs = {
     "GI-ALDI": trajectories_galdi,
     # "EKS": trajectories_eks,
     "MSIP-Fredholm": trajectories_msip_f,
-    "MSIP-GF": trajectories_msip_gf,
+#    "MSIP-GF": trajectories_msip_gf,
     # "MSIP-QG": trajectories_msip_qg,
 }
 
@@ -217,13 +245,13 @@ algo_few_trajs = {
 
 algo_last_wts = {
     "MSIP-Fredholm": traj_wts_msip_f[-1],
-    "MSIP-GF": traj_wts_msip_gf[-1],
+#    "MSIP-GF": traj_wts_msip_gf[-1],
     # "MSIP-QG": traj_wts_msip_qg[-1],
 }
 
 algo_wts_trajs = {
     "MSIP-Fredholm": traj_wts_msip_f,
-    "MSIP-GF": traj_wts_msip_gf,
+#    "MSIP-GF": traj_wts_msip_gf,
     # "MSIP-QG": traj_wts_msip_qg,
 }
 
