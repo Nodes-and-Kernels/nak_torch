@@ -72,18 +72,19 @@ N_STEPS = 500
 METRIC_EVERY = 10
 BASE_SEED = 314159
 
-LR_SVGD = 0.1
-LR_MSIP = 0.1
+LR_SVGD = 0.5
+LR_MSIP = 0.5
 
 SCALE_KERNEL_WITH_DIM = False
-KERNEL_LS_BASE = 1.0
+KERNEL_LS_BASE = 0.5
 KERNEL_DIAG = 1e-6
 GRADIENT_DECAY = 1.0
 BOUNDS_MSIP = (-1000.0, 1000.0)
 N_QUAD = 1
 
-MODE_SEPARATION_ALPHA = 7.5
+MODE_SEPARATION_ALPHA = 5.5
 TARGET_COV_SCALE = 0.5
+ANISOTROPY_FACTOR = 3.0
 
 # Initialization: particles are initialized from the same five-axis geometry.
 # INIT_ALPHA = MODE_SEPARATION_ALPHA means initialized around the target modes.
@@ -91,15 +92,60 @@ TARGET_COV_SCALE = 0.5
 INIT_ALPHA = 20.0
 INIT_STD = 1.0
 
+
+
+
+
+
+
+# D_VALUES = [10]          # try [5, 10, 20]
+# M_values = [5, 10, 15, 20, 50, 100]
+
+# T = 500
+# R = 20
+
+# # Learning rates.
+# lr = 0.5
+# lr_aldi = 0.005 / 3
+# lr_msip = 0.5
+
+# # Kernel bandwidth. If SCALE_KERNEL_WITH_DIM=True, use sigma_base * sqrt(d).
+# SCALE_KERNEL_WITH_DIM = False
+# kernel_length_scale_base = 0.5
+# kernel_diag_infl = 1e-6
+# gradient_decay = 1.0
+# bounds = (-1000.0, 1000.0)
+
+# # Quad rule used by MSIP-QG variants.
+# N_QUAD = 1
+
+# # Target component means are MODE_SEPARATION_ALPHA * e_i, i=1,...,5.
+# N_COMPONENTS = 5
+# MODE_SEPARATION_ALPHA = 5.5
+
+# # Covariance parameters.
+# TARGET_COV_SCALE = 0.5
+# ANISOTROPY_FACTOR = 3.0
+
+# # Initialization: particles around INIT_ALPHA * e_1.
+# INIT_ALPHA = 20.0
+# init_std = 1.0
+
+# base_seed = 314159
+
+
+
+
+
 N_COMPONENTS = 5
 
 ALGO_NAMES = [
     "SVGD",
     "MSIP-Fredholm",
-    "MSIP-QG",
-    "MSIP-GS-QG",
-    "MSIP-GMM",
-    "MSIP-GS-GMM",
+    #"MSIP-QG",
+    #"MSIP-GS-QG",
+    #"MSIP-GMM",
+    #"MSIP-GS-GMM",
 ]
 
 # Coordinate projections to plot. Each pair is zero-indexed internally.
@@ -400,71 +446,71 @@ def run_algorithms(M: int, d: int, seed: int):
     )
     results["SVGD"] = (traj, None)
 
-    print("    === MSIP-QG ===", flush=True)
-    msip_qg = MSIPQuadGradientInformed(
-        post_log_dens_grad_val_batch,
-        partial(spherical_quad, N_quad=N_QUAD, dim=d),
-        GRADIENT_DECAY,
-    )
-    traj, wts = msip(
-        msip_qg, M, N_STEPS, dim=d,
-        lr=LR_MSIP, init_particles=init_p,
-        kernel_length_scale=KERNEL_LS,
-        kernel_diag_infl=KERNEL_DIAG,
-        bounds=BOUNDS_MSIP,
-        keep_all=True, compile_step=False, verbose=False,
-    )
-    results["MSIP-QG"] = (traj, wts)
+    # print("    === MSIP-QG ===", flush=True)
+    # msip_qg = MSIPQuadGradientInformed(
+    #     post_log_dens_grad_val_batch,
+    #     partial(spherical_quad, N_quad=N_QUAD, dim=d),
+    #     GRADIENT_DECAY,
+    # )
+    # traj, wts = msip(
+    #     msip_qg, M, N_STEPS, dim=d,
+    #     lr=LR_MSIP, init_particles=init_p,
+    #     kernel_length_scale=KERNEL_LS,
+    #     kernel_diag_infl=KERNEL_DIAG,
+    #     bounds=BOUNDS_MSIP,
+    #     keep_all=True, compile_step=False, verbose=False,
+    # )
+    # results["MSIP-QG"] = (traj, wts)
 
-    print("    === MSIP-GS-QG ===", flush=True)
-    msip_gs_qg = MSIPQuadGradientInformed(
-        post_log_dens_grad_val_batch,
-        partial(spherical_quad, N_quad=N_QUAD, dim=d),
-        GRADIENT_DECAY,
-    )
-    traj, wts = msip_gs(
-        msip_gs_qg, M, N_STEPS, dim=d,
-        lr=LR_MSIP, init_particles=init_p,
-        kernel_length_scale=KERNEL_LS,
-        kernel_diag_infl=KERNEL_DIAG,
-        bounds=BOUNDS_MSIP,
-        keep_all=True, compile_step=False, verbose=False,
-    )
-    results["MSIP-GS-QG"] = (traj, wts)
+    # print("    === MSIP-GS-QG ===", flush=True)
+    # msip_gs_qg = MSIPQuadGradientInformed(
+    #     post_log_dens_grad_val_batch,
+    #     partial(spherical_quad, N_quad=N_QUAD, dim=d),
+    #     GRADIENT_DECAY,
+    # )
+    # traj, wts = msip_gs(
+    #     msip_gs_qg, M, N_STEPS, dim=d,
+    #     lr=LR_MSIP, init_particles=init_p,
+    #     kernel_length_scale=KERNEL_LS,
+    #     kernel_diag_infl=KERNEL_DIAG,
+    #     bounds=BOUNDS_MSIP,
+    #     keep_all=True, compile_step=False, verbose=False,
+    # )
+    # results["MSIP-GS-QG"] = (traj, wts)
 
-    print("    === MSIP-GMM ===", flush=True)
-    msip_gmm = MSIPGMMGaussianKernel(
-        weights=gmm_weights,
-        means=gmm_means,
-        covariances=gmm_covs,
-        bandwidth=KERNEL_LS,
-    )
-    traj, wts = msip(
-        msip_gmm, M, N_STEPS, dim=d,
-        lr=LR_MSIP, init_particles=init_p,
-        kernel_length_scale=KERNEL_LS,
-        kernel_diag_infl=KERNEL_DIAG,
-        bounds=BOUNDS_MSIP,
-        keep_all=True, compile_step=False, verbose=False,
-    )
-    results["MSIP-GMM"] = (traj, wts)
+    # print("    === MSIP-GMM ===", flush=True)
+    # msip_gmm = MSIPGMMGaussianKernel(
+    #     weights=gmm_weights,
+    #     means=gmm_means,
+    #     covariances=gmm_covs,
+    #     bandwidth=KERNEL_LS,
+    # )
+    # traj, wts = msip(
+    #     msip_gmm, M, N_STEPS, dim=d,
+    #     lr=LR_MSIP, init_particles=init_p,
+    #     kernel_length_scale=KERNEL_LS,
+    #     kernel_diag_infl=KERNEL_DIAG,
+    #     bounds=BOUNDS_MSIP,
+    #     keep_all=True, compile_step=False, verbose=False,
+    # )
+    # results["MSIP-GMM"] = (traj, wts)
 
-    print("    === MSIP-GS-GMM ===", flush=True)
-    msip_gs_gmm = MSIPGMMGaussianKernel(
-        weights=gmm_weights,
-        means=gmm_means,
-        covariances=gmm_covs,
-        bandwidth=KERNEL_LS,
-    )
-    traj, wts = msip_gs(
-        msip_gs_gmm, M, N_STEPS, dim=d,
-        lr=LR_MSIP, init_particles=init_p,
-        kernel_length_scale=KERNEL_LS,
-        kernel_diag_infl=KERNEL_DIAG,
-        bounds=BOUNDS_MSIP,
-        keep_all=True, compile_step=False, verbose=False,
-    )
-    results["MSIP-GS-GMM"] = (traj, wts)
+    # print("    === MSIP-GS-GMM ===", flush=True)
+    # msip_gs_gmm = MSIPGMMGaussianKernel(
+    #     weights=gmm_weights,
+    #     means=gmm_means,
+    #     covariances=gmm_covs,
+    #     bandwidth=KERNEL_LS,
+    # )
+    # traj, wts = msip_gs(
+    #     msip_gs_gmm, M, N_STEPS, dim=d,
+    #     lr=LR_MSIP, init_particles=init_p,
+    #     kernel_length_scale=KERNEL_LS,
+    #     kernel_diag_infl=KERNEL_DIAG,
+    #     bounds=BOUNDS_MSIP,
+    #     keep_all=True, compile_step=False, verbose=False,
+    # )
+    # results["MSIP-GS-GMM"] = (traj, wts)
 
     print("    === MSIP-Fredholm ===", flush=True)
     msip_fredholm = MSIPFredholm(GRADIENT_DECAY, post_log_dens_grad_val_batch)

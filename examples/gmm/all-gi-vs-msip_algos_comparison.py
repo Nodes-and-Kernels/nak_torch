@@ -62,11 +62,11 @@ model = nak_torch.GaussianModel(
 
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
 n_steps     = 500
-n_particles = 20
-lr          = 0.01
-lr_msip     = 1e-2
+n_particles = 100
+lr          = 0.2
+lr_msip     = 2e-1
 
-kernel_length_scale = 3.0
+kernel_length_scale = 0.1
 kernel_diag_infl    = 1e-8
 gradient_decay      = 1.0
 bounds              = (-100.0, 100.0)
