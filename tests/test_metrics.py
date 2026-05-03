@@ -6,16 +6,18 @@ from nak_torch.tools import kernel
 
 MAX_POW10 = 4
 
-def normal_logpdf(x: Tensor):
+def normal_logpdf(x: Tensor, _ = None):
     return x.square().sum(-1).neg().div(2)
 
+def grad_normal_logpdf(x: Tensor, _ = None):
+    return x.neg()
+
 def test_ksd():
-    grad_log_normal = torch.neg
     KSD_KERNEL_ELEM = kernel.inverse_multi_quadric_kernel_elem
     rng = torch.Generator()
     rng.manual_seed(321393021)
     kernel_length_scale = 0.1
-    ksd = metrics.KernelSteinDiscrepancy(grad_log_normal, kernel_length_scale, kernel_elem=KSD_KERNEL_ELEM)
+    ksd = metrics.KernelSteinDiscrepancy(grad_normal_logpdf, kernel_length_scale, kernel_elem=KSD_KERNEL_ELEM)
     in_sizes = torch.arange(MAX_POW10 + 1)
     # 15 is empirical, does not really matter.
     expected_ksd = 15*torch.pow(10.0, -0.5 * in_sizes)
