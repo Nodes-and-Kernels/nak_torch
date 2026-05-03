@@ -104,12 +104,12 @@ model = nak_torch.GaussianModel(
 
 
 # ── Shared hyper-parameters ───────────────────────────────────────────────────
-n_steps     = 500
+n_steps     = 1000
 n_particles = 50
 lr          = 0.8
 lr_msip     = 0.8
 
-kernel_length_scale = 0.5
+kernel_length_scale = 0.1
 kernel_diag_infl    = 1e-6
 gradient_decay      = 1.0
 bounds              = (-100.0, 100.0)
@@ -204,20 +204,20 @@ trajectories_msip_qg, traj_wts_msip_qg = msip(
     keep_all=True, compile_step=False, verbose=True,
 )
 
-print("=== MSIP-GS-QG ===")
-msip_quadgrad_gs = MSIPQuadGradientInformed(
-    post_log_dens_grad_val_batch,
-    partial(spherical_quad, N_quad=1),
-    gradient_decay,
-)
-trajectories_msip_gs_qg, traj_wts_msip_gs_qg = msip_gs(
-    msip_quadgrad_gs, n_particles, n_steps, dim=2,
-    lr=lr_msip, init_particles=init_particles,
-    kernel_length_scale=kernel_length_scale,
-    kernel_diag_infl=kernel_diag_infl,
-    bounds=(-1000, 1000),
-    keep_all=True, compile_step=False, verbose=True,
-)
+# print("=== MSIP-GS-QG ===")
+# msip_quadgrad_gs = MSIPQuadGradientInformed(
+#     post_log_dens_grad_val_batch,
+#     partial(spherical_quad, N_quad=1),
+#     gradient_decay,
+# )
+# trajectories_msip_gs_qg, traj_wts_msip_gs_qg = msip_gs(
+#     msip_quadgrad_gs, n_particles, n_steps, dim=2,
+#     lr=lr_msip, init_particles=init_particles,
+#     kernel_length_scale=kernel_length_scale,
+#     kernel_diag_infl=kernel_diag_infl,
+#     bounds=(-1000, 1000),
+#     keep_all=True, compile_step=False, verbose=True,
+# )
 
 print("=== MSIP-GMM ===")
 msip_gmm = MSIPGMMGaussianKernel(
@@ -233,19 +233,19 @@ trajectories_msip_gmm, traj_wts_msip_gmm = msip(
     keep_all=True, compile_step=False, verbose=True,
 )
 
-print("=== MSIP-GS-GMM ===")
-msip_gmm_gs = MSIPGMMGaussianKernel(
-    weights=gmm_weights, means=gmm_means,
-    covariances=gmm_covs, bandwidth=kernel_length_scale,
-)
-trajectories_msip_gs_gmm, traj_wts_msip_gs_gmm = msip_gs(
-    msip_gmm_gs, n_particles, n_steps, dim=2,
-    lr=lr_msip, init_particles=init_particles,
-    kernel_length_scale=kernel_length_scale,
-    kernel_diag_infl=kernel_diag_infl,
-    bounds=bounds,
-    keep_all=True, compile_step=False, verbose=True,
-)
+# print("=== MSIP-GS-GMM ===")
+# msip_gmm_gs = MSIPGMMGaussianKernel(
+#     weights=gmm_weights, means=gmm_means,
+#     covariances=gmm_covs, bandwidth=kernel_length_scale,
+# )
+# trajectories_msip_gs_gmm, traj_wts_msip_gs_gmm = msip_gs(
+#     msip_gmm_gs, n_particles, n_steps, dim=2,
+#     lr=lr_msip, init_particles=init_particles,
+#     kernel_length_scale=kernel_length_scale,
+#     kernel_diag_infl=kernel_diag_infl,
+#     bounds=bounds,
+#     keep_all=True, compile_step=False, verbose=True,
+# )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -258,9 +258,9 @@ algo_trajs = {
     "EKS":           trajectories_eks,
     "MSIP-Fredholm": trajectories_msip_f,
     "MSIP-QG":       trajectories_msip_qg,
-    "MSIP-GS-QG":    trajectories_msip_gs_qg,
+#    "MSIP-GS-QG":    trajectories_msip_gs_qg,
     "MSIP-GMM":      trajectories_msip_gmm,
-    "MSIP-GS-GMM":   trajectories_msip_gs_gmm,
+#    "MSIP-GS-GMM":   trajectories_msip_gs_gmm,
 }
 
 algo_few_trajs = {
@@ -268,15 +268,15 @@ algo_few_trajs = {
     "GI-ALDI":       trajectories_galdi,
     "EKS":           trajectories_eks,
     "MSIP-QG":       trajectories_msip_qg,
-    "MSIP-GS-QG":    trajectories_msip_gs_qg,
+#    "MSIP-GS-QG":    trajectories_msip_gs_qg,
 }
 
 algo_last_wts = {
     "MSIP-Fredholm": traj_wts_msip_f[-1],
     "MSIP-QG":       traj_wts_msip_qg[-1],
-    "MSIP-GS-QG":    traj_wts_msip_gs_qg[-1],
+#    "MSIP-GS-QG":    traj_wts_msip_gs_qg[-1],
     "MSIP-GMM":      traj_wts_msip_gmm[-1],
-    "MSIP-GS-GMM":   traj_wts_msip_gs_gmm[-1],
+#    "MSIP-GS-GMM":   traj_wts_msip_gs_gmm[-1],
 }
 
 metrics        = {name: {"mmd": [], "ksd_rbf": [], "ksd_imq": []} for name in algo_trajs}
