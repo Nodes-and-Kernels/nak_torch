@@ -4,7 +4,7 @@ from typing import Generic, Optional, TypeVar
 import torch
 
 from nak_torch.tools.func import AlgorithmArgsT, WeightedAdaptiveNAKAlgorithm
-from nak_torch.tools.kernel import default_kernel_matrix
+from nak_torch.tools.kernel import DEFAULT_KERNEL_MATRIX
 from nak_torch.tools.util import get_keywords, quantile_distance
 from .msip_map import msip_map
 from .estimators import MSIPEstimator, MSIPFredholm
@@ -70,7 +70,7 @@ class GeneralMSIPAlgorithm(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, Algorithm
             self.default_kernel_lengthscale = kernel_lengthscale
         self.kernel_lengthscale_quantile = kernel_lengthscale_quantile
         if get_kernel_matrix is None:
-            self.get_kernel_matrix = default_kernel_matrix
+            self.get_kernel_matrix = DEFAULT_KERNEL_MATRIX
         else:
             self.get_kernel_matrix = get_kernel_matrix
 
