@@ -27,6 +27,9 @@ __all__ = [
 ]
 
 
+
+
+
 def sqexp_kernel_matrix(
     pts: BatchPtType, kernel_length_scale: float, pts2: Optional[BatchPtType] = None
 ) -> KernelMatrixType:
@@ -96,7 +99,7 @@ def kernel_optimal_weight_factory(
     v0 = (log_dens_evals - log_dens_evals.max()).exp_()
     wts = torch.linalg.solve(kernel_matrix, v0)
     return wts.div_(wts.sum())
-
+    #return project_simplex(wts, 1.0)
 
 def stein_kernel_diffs_factory(
     kernel_fcn: KernelFunction,

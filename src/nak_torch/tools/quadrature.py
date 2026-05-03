@@ -78,6 +78,46 @@ def spherical_MC_radial_Laguerre(
     return pts, wts
 
 
+def spherical_struct_radial_Laguerre(
+    batch_size: int,
+    N_spherical: int,  # kept for API compatibility, but ignored
+    d: int,
+    N_radial: int = 3,
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[torch.device] = None,
+) -> tuple[Float[Tensor, "batch N_s*N_r d"], Float[Tensor, "batch N_s*N_r"]]:
+    r"""Gauss--Laguerre quadrature over radius + signed coordinate spherical rule.
+
+    Spherical points are:
+        e_1, ..., e_d, -e_1, ..., -e_d
+
+    with equal spherical weights 1/(2d).
+    """
+    alpha = d / 2 - 1
+
+    r_pts, r_wts = gaussian_laguerre_quadrature(
+        N_radial, alpha, dtype=dtype, device=device
+    )
+
+    eye = torch.eye(d, dtype=dtype, device=device)
+    sphere_pts = torch.cat([eye, -eye], dim=0)  # (2d, d)
+
+    sphere_wts = torch.full(
+        (2 * d,),
+        1.0 / (2 * d),
+        dtype=dtype,
+        device=device,
+    )
+
+    MC_pts = sphere_pts.unsqueeze(0).expand(batch_size, -1, -1)
+    MC_wts = sphere_wts.unsqueeze(0).expand(batch_size, -1)
+
+    pts, wts = vmap_combine_radial_spherical_quadrature(
+        MC_pts, MC_wts, r_pts, r_wts
+    )
+
+    return pts, wts
+
 def gauss_MC(
     batch_size: int, N_quad: int, d: int
 ) -> tuple[Float[Tensor, "batch N_quad d"], Float[Tensor, "batch N_quad"]]:
