@@ -8,7 +8,7 @@ from nak_torch.algorithms import msip, svgd
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 from datetime import datetime
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, default_kernel_matrix
+from nak_torch.tools.kernel import kernel_optimal_weight_factory, DEFAULT_KERNEL_MATRIX
 
 save_gif = False
 algorithm_name = "msip_ni"
@@ -40,7 +40,8 @@ estimator_fredholm = MSIPFredholm(
 
 trajectories_fr, trajectories_wts_fr = msip(
     estimator_fredholm,
-    n_steps=100,
+    n_steps=200,
+    use_quantile_length_scale=0.0,
     **params
 )
 
@@ -66,6 +67,7 @@ plt.show()
 trajectories_svgd = svgd(
     log_density,
     n_steps=100,
+    use_quantile_length_scale=0.5,
     **params
 )
 
@@ -86,19 +88,21 @@ estimator = MSIPQuadGradientFree(
     lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
 )
 params_gf = params.copy()
-params_gf['lr'] = 0.6
+params_gf['lr'] = 0.5
 n_particles = 25
 trajectories_gf,w = msip(
     estimator,
-    n_steps=100,
+    n_steps=500,
     seed=1,
+    use_quantile_length_scale=0.0,
     **params_gf
 )
 
 pts_gf = trajectories_gf[-1]
-wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), default_kernel_matrix(pts_gf, params["kernel_length_scale"]))
+wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), DEFAULT_KERNEL_MATRIX(pts_gf, params["kernel_length_scale"]))
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
+plt.show()
 
 # %%
 batch_log_dens = torch.vmap(log_density)

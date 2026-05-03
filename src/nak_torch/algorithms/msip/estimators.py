@@ -42,7 +42,8 @@ class MSIPFredholm(MSIPEstimator):
 
     def get_v_evals(self, particles, kernel_length_scale):
         grads, v0 = self.log_dens_grad_val(particles)
-        sigma_sq_log_v0 = grads.mul_(kernel_length_scale * kernel_length_scale * self.gradient_decay)
+        sigma_sq = kernel_length_scale**2
+        sigma_sq_log_v0 = grads.mul_(sigma_sq * self.gradient_decay)
         return v0, sigma_sq_log_v0
 
 
@@ -96,7 +97,8 @@ class MSIPQuadGradientInformed(MSIPEstimator):
 
     def get_v_evals(self, particles, kernel_length_scale):
         quad_pts, quad_wts = self.quadrature(particles.shape[0])
-        particle_quad_pts = quad_pts.mul_(kernel_length_scale * kernel_length_scale).add(
+        sigma_sq = kernel_length_scale**2
+        particle_quad_pts = quad_pts.mul_(kernel_length_scale).add(
             particles.unsqueeze(1)
         )  # (N_part, N_quad, dim)
         log_dens_grads, log_dens_evals = self.log_dens_grad_val(
@@ -107,7 +109,7 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         log_dens_evals = log_dens_evals.reshape(particle_quad_pts.shape[:-1])
 
         v1_integrand = quad_pts.mul_(1 - self.gradient_decay).add_(
-            log_dens_grads.mul_(self.gradient_decay * kernel_length_scale * kernel_length_scale)
+            log_dens_grads.mul_(self.gradient_decay * sigma_sq)
         )  # Note that previously multiplied particle_quad_pts by kernel_length_scale
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
             v1_integrand, quad_wts, log_dens_evals

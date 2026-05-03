@@ -1,5 +1,5 @@
 import torch
-from typing import Optional, Callable
+from typing import Any, Optional, Callable
 from jaxtyping import Float
 from torch import Tensor
 from .types import (
@@ -15,7 +15,8 @@ from .types import (
 )
 
 __all__ = [
-    "default_kernel_matrix",
+    "DEFAULT_KERNEL_MATRIX",
+    "DEFAULT_KERNEL_ELEM",
     "sqexp_kernel_matrix",
     "sqexp_kernel_elem",
     "matricize_kernel_elem",
@@ -41,7 +42,7 @@ def sqexp_kernel_matrix(
     )
 
 
-default_kernel_matrix = sqexp_kernel_matrix
+DEFAULT_KERNEL_MATRIX = sqexp_kernel_matrix
 
 
 def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float:
@@ -52,6 +53,9 @@ def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float
         -(x - y).square().sum() / (2 * kernel_length_scale * kernel_length_scale)
     )
     return ret
+
+
+DEFAULT_KERNEL_ELEM = sqexp_kernel_elem
 
 
 def inverse_multi_quadric_kernel_elem(
@@ -67,13 +71,13 @@ def inverse_multi_quadric_kernel_elem(
 
 
 def matricize_kernel_elem(
-    kernel: KernelFunction, use_compiled: bool = True
+    kernel_elem: KernelFunction, use_compiled: bool = True
 ) -> MatSelfKernelFunction:
     r"""
-    Vectorize elementwise kernel(pt1, pt2, length_scale) and return a function kernel_mat(pt, length_scale[, pt2=pt])
+    Vectorize elementwise kernel(pt1, pt2, lengthscale) and return a function kernel_mat(pt, lengthscale[, pt2=pt])
     """
     kernel_v: MatSelfKernelFunction = torch.vmap(
-        torch.vmap(kernel, in_dims=(0, None, None), out_dims=0),
+        torch.vmap(kernel_elem, in_dims=(0, None, None), out_dims=0),
         in_dims=(None, 0, None),
         out_dims=1,
     )
@@ -156,15 +160,15 @@ def stein_kernel_mat_factory(
 
 
 def kernel_grad_and_value_factory(
-    kernel_elem: KernelFunction, which_argnum: int, *kernel_args
+    kernel_elem: KernelFunction, which_argnum: int
 ) -> Callable[
-    [BatchPtType, BatchPtType], tuple[GradKernelMatrixType, KernelMatrixType]
+    [BatchPtType, BatchPtType, Any], tuple[GradKernelMatrixType, KernelMatrixType]
 ]:
     kernel_grad_val = torch.func.grad_and_value(
-        lambda x, y: kernel_elem(x, y, *kernel_args), argnums=which_argnum
+        lambda x, y, kernel_args: kernel_elem(x, y, kernel_args), argnums=which_argnum
     )
     kernel_grad_val_vec = torch.vmap(
-        torch.vmap(kernel_grad_val, in_dims=(None, 0)), in_dims=(0, None)
+        torch.vmap(kernel_grad_val, in_dims=(None, 0, None)), in_dims=(0, None, None)
     )
     return kernel_grad_val_vec
 

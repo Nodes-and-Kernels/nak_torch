@@ -1,10 +1,12 @@
-from typing import Optional
+import os
+from typing import Callable, Optional
 from abc import ABC, abstractmethod
 from warnings import warn
 from jaxtyping import Float
 
 import torch
 from torch import Tensor
+import pickle
 from .types import (
     BatchGradLogDensity,
     BatchLogDensityGradVal,
@@ -12,12 +14,15 @@ from .types import (
     BatchPtType,
     BatchLogDensity,
     GradLogDensity,
+    KernelFunction,
+    KernelMatrixType,
     LogDensity,
     LogDensityGradVal,
     MatSelfKernelFunction,
+    PtType,
 )
 
-from .kernel import sqexp_kernel_elem, stein_kernel_mat_factory
+from .kernel import DEFAULT_KERNEL_ELEM, matricize_kernel_elem, stein_kernel_mat_factory
 
 __all__ = ["CrossEntropy", "KernelSteinDiscrepancy", "RelativeESS"]
 
@@ -143,12 +148,12 @@ class KernelSteinDiscrepancy(Metric):
         self,
         grad_log_dens: AnyLogDensGrad,
         kernel_length_scale: float,
-        kernel_elem=None,
+        kernel_elem: Optional[KernelFunction] = None,
         is_grad_vectorized: bool = True,
         use_compiled: bool = False,
     ):
         if kernel_elem is None:
-            kernel_elem = sqexp_kernel_elem
+            kernel_elem = DEFAULT_KERNEL_ELEM
         self.kernel_length_scale = kernel_length_scale
         self.stein_kernel_mat = stein_kernel_mat_factory(
             grad_log_dens,
@@ -163,3 +168,85 @@ class KernelSteinDiscrepancy(Metric):
             return stein_mat.mean().sqrt()
         else:
             return (wts @ stein_mat @ wts).sqrt()
+
+
+class SampleMMD(Metric):
+    kernel_sample_reduce: Callable[
+        [BatchPtType], BatchType
+    ]  # k(X,y,sigma), X as vector
+    kernel_mat: Callable[[BatchPtType], KernelMatrixType]
+    self_mmd: float
+    kernel_lengthscale: float
+
+    def __init__(
+        self,
+        samples: BatchPtType,
+        kernel_lengthscale: float,
+        kernel_elem: Optional[KernelFunction] = None,
+        self_mmd: Optional[Float] = None,
+        self_mmd_serial: Optional[str] = None,
+        use_compiled: bool = True,
+    ):
+        if kernel_elem is None:
+            kernel_elem = DEFAULT_KERNEL_ELEM
+        kernel_vec = torch.vmap(kernel_elem, in_dims=(0, None, None))
+
+        def _kernel_reduce(y: PtType) -> Float:
+            return kernel_vec(samples, y, kernel_lengthscale).mean()
+
+        kernel_reduce_elem: Callable[[PtType], Float]
+        if use_compiled:
+            kernel_reduce_elem = torch.compile(_kernel_reduce)
+        else:
+            kernel_reduce_elem = _kernel_reduce
+        kernel_reduce = torch.vmap(kernel_reduce_elem)
+        self.kernel_sample_reduce = kernel_reduce
+        kernel_mat = matricize_kernel_elem(kernel_elem, use_compiled)
+        self.kernel_mat = lambda pts: kernel_mat(pts, kernel_lengthscale)
+        if self_mmd is None:
+            if self_mmd_serial is None:
+                self.self_mmd = kernel_reduce(samples).mean()
+            else:
+                import fcntl  # TODO: Fix for windows, I guess
+
+                self_mmd_dict: dict[float, Float] = {}
+                file_existed_prev = os.path.exists(self_mmd_serial)
+                with open(self_mmd_serial, "rb+") as f:
+                    if file_existed_prev:
+                        try:
+                            self_mmd_dict = pickle.load(f)
+                        except EOFError:
+                            self_mmd_dict = {}
+                self_mmd_pkl: float
+                if kernel_lengthscale in self_mmd_dict.keys():
+                    self_mmd_pkl = self_mmd_dict[kernel_lengthscale]
+                else:
+                    self_mmd_pkl = kernel_reduce(samples).mean()
+                    # Ensure file is locked and up-to-date in case things are written in parallel
+                    with open(self_mmd_serial, "wb+") as f:
+                        fcntl.lockf(f, fcntl.LOCK_EX)
+                        try:
+                            new_self_mmd_dict = pickle.load(f)
+                        except EOFError:
+                            new_self_mmd_dict = self_mmd_dict
+                        self_mmd_dict[kernel_lengthscale] = self_mmd_pkl
+                        pickle.dump(new_self_mmd_dict, f)
+                        fcntl.lockf(f, fcntl.LOCK_UN)
+                    # End lock
+                self.self_mmd = self_mmd_pkl
+        else:
+            self.self_mmd = self_mmd
+
+    def __call__(self, pts, wts=None):
+        self_mmd = self.self_mmd
+        cross_kernel_vec = self.kernel_sample_reduce(pts)
+        pts_kernel_mat = self.kernel_mat(pts)
+        cross_mmd: Float
+        pts_mmd: Float
+        if wts is None:
+            cross_mmd = cross_kernel_vec.mean()
+            pts_mmd = pts_kernel_mat.mean()
+        else:
+            cross_mmd = cross_kernel_vec @ wts
+            pts_mmd = wts @ (pts_kernel_mat @ wts)
+        return torch.sqrt(self_mmd - 2 * cross_mmd + pts_mmd)
