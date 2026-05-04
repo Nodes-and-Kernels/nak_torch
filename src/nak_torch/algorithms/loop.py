@@ -7,20 +7,20 @@ import torch
 from torch import Tensor
 
 from nak_torch.tools.util import initialize_particles
-from nak_torch.tools.types import (
-    NAKTarget,
-)
 
 from nak_torch.tools.func import (
+    AlgorithmArgsT,
     GeneralAdaptiveNAKAlgorithm,
+    NAKTargetT,
+    WeightT,
 )
 
 __all__ = ["nak"]
 
 
 def nak(
-    target: NAKTarget,
-    algorithm: GeneralAdaptiveNAKAlgorithm,
+    target: NAKTargetT,
+    algorithm: GeneralAdaptiveNAKAlgorithm[NAKTargetT, WeightT, AlgorithmArgsT],
     n_steps: int,
     lr: float,
     rng_or_seed: Optional[int | torch.Generator] = None,
