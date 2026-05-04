@@ -55,7 +55,14 @@ def gradfree_aldi_step(
 
     prior_term2 = forecast_deviation.mul_((dim + 1) / N_batch)
     particle_diff = prior_term2.sub_(prior_term1).sub_(likely_term)
-    noise = torch.normal(0.0, 1.0, particles.shape, generator=rng)
+    noise = torch.normal(
+        0.0,
+        1.0,
+        particles.shape,
+        dtype=particles.dtype,
+        device=particles.device,
+        generator=rng,
+    )
     motion = torch.matmul(noise, sqrt_cov_forecast)
 
     return particle_diff, motion
@@ -107,9 +114,14 @@ class GradFreeALDI(UnweightedAdaptiveNAKAlgorithm[GaussianModel, None]):
         algorithm_args: None,
         target_args: Any,
     ) -> tuple[Tensor, None, None]:
-        forward_model, likelihood_precision, prior_precision, true_obs, prior_mean = (
-            astuple(target)
-        )
+        (
+            forward_model,
+            likelihood_precision,
+            prior_precision,
+            true_obs,
+            prior_mean,
+            _,
+        ) = astuple(target)
         forecast_observations = forward_model(particles, target_args)
         particles_diff, particles_noise = gradfree_aldi_step(
             particles,

@@ -66,7 +66,14 @@ def eks_step(
     new_particles: BatchPtType = torch.linalg.solve(
         prior_term_premul, particles - likely_term, left=False
     )
-    noise_tens = torch.randn(particles.shape, generator=rng)
+    noise_tens = torch.normal(
+        0.0,
+        1.0,
+        size=particles.shape,
+        device=particles.device,
+        dtype=particles.dtype,
+        generator=rng,
+    )
     noise_samp = noise_tens @ sqrt_prior_cov
     return new_particles.add_(noise_samp)
 
@@ -114,9 +121,14 @@ class EKS(UnweightedAdaptiveNAKAlgorithm[GaussianModel, None]):
         algorithm_args: None,
         target_args: Any,
     ) -> tuple[Tensor, None, None]:
-        forward_model, likelihood_precision, prior_precision, true_obs, prior_mean = (
-            astuple(target)
-        )
+        (
+            forward_model,
+            likelihood_precision,
+            prior_precision,
+            true_obs,
+            prior_mean,
+            _,
+        ) = astuple(target)
         forecast_observations = forward_model(particles, target_args)
         new_particles = eks_step(
             particles,

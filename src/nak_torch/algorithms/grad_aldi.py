@@ -31,7 +31,12 @@ def grad_aldi_step(
     particles_sqrt_cov = sym_sqrtm(2 * particles_cov)
     # sqrt(2) comes from noise
     particles_noise_iid = torch.normal(
-        0.0, 1.0, size=particles.shape, generator=rng, device=particles.device
+        0.0,
+        1.0,
+        size=particles.shape,
+        generator=rng,
+        dtype=particles.dtype,
+        device=particles.device,
     )
     particles_noise = particles_noise_iid @ particles_sqrt_cov
     drift_term = term1.add_(term2)

@@ -12,9 +12,11 @@ __all__ = ["sym_sqrtm", "quantile_distance", "infinite_iter"]
 def sym_sqrtm(A: Float[Tensor, "n n"], use_inv: bool = False):
     e, v = torch.linalg.eigh(A)
     if use_inv:
-        return torch.einsum("ij,j,kj->ik", v, torch.reciprocal_(e.sqrt_()), v)
+        return torch.einsum("ij,j,kj->ik", v, torch.reciprocal_(e.sqrt_()), v).to(
+            dtype=A.dtype
+        )
     else:
-        return torch.einsum("ij,j,kj->ik", v, e.sqrt_(), v)
+        return torch.einsum("ij,j,kj->ik", v, e.sqrt_(), v).to(dtype=A.dtype)
 
 
 def get_keywords(fcn: Callable):
