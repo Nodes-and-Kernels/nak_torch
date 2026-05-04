@@ -79,8 +79,10 @@ def spherical_MC_radial_Laguerre(
 
 
 def gauss_MC(
-    batch_size: int, N_quad: int, d: int, device=None, dtype=None
+    batch_size: int, N_quad: int, d: int, rng: torch.Generator, device=None, dtype=None
 ) -> tuple[Float[Tensor, "batch N_quad d"], Float[Tensor, "batch N_quad"]]:
-    pts = torch.randn((batch_size, N_quad, d), device=device, dtype=dtype)
+    pts = torch.randn(
+        (batch_size, N_quad, d), device=device, dtype=dtype, generator=rng
+    )
     wts = torch.ones((batch_size, N_quad), device=device, dtype=dtype).div_(N_quad)
     return pts, wts
