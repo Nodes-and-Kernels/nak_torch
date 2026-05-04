@@ -251,7 +251,7 @@ def build_forward_solver_args(N, N_obs, device=None, dtype: Optional[torch.dtype
         [-1./6,  2./3,  -1./6,  -1./3],
         [-1./3, -1./6,   2./3,  -1./6],
         [-1./6, -1./3,  -1./6,   2./3]
-    ], device=device)
+    ], dtype=dtype, device=device)
 
     # Locate boundary labels
     boundaries = torch.concat((
@@ -323,7 +323,7 @@ def forward_solver(
 
     A_rows = A_idxs
     A_cols = A_idxs.permute((0,2,1))
-    A_dens = torch.zeros((N_batch, Np1**2, Np1**2))
+    A_dens = torch.zeros((N_batch, Np1**2, Np1**2), device=theta.device, dtype=theta.dtype)
     # Unroll loop
     A_dens[:,A_rows[:,0,0],A_cols[:,0,0]] += A_locs[:,:,0,0]
     A_dens[:,A_rows[:,0,1],A_cols[:,0,1]] += A_locs[:,:,0,1]
@@ -345,7 +345,6 @@ def forward_solver(
     A_dens[:,boundaries, :] = 0.
     A_dens[:,:,boundaries] = 0.
     A_dens[:,boundaries, boundaries] = 1.
-
     # Solve linear equation for coefficients, U, and then
     # get the Z vector by multiplying by the measurement matrix
     return torch.linalg.solve(A_dens, b.repeat(N_batch,1))
