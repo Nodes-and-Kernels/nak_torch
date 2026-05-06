@@ -9,12 +9,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 import nak_torch
 from nak_torch.algorithms import grad_aldi, msip, svgd
 from nak_torch.algorithms.deepensembles import deepensembles
-from nak_torch.algorithms.msip import MSIPFredholm,MSIPQuadGradientInformed
+#from nak_torch.algorithms.msip import MSIPFredholm,MSIPQuadGradientInformed
+from nak_torch.algorithms.msip import MSIPFredholm,MSIPQuadGradientInformed,MSIPQuadGradientFree
 
-#from joker import logpdf as joker_logpdf  # adjust path as needed
-from functions import joker
-from nak_torch.tools.metrics import CrossEntropy
-
+from functions import funnel
+from nak_torch.tools.metrics import KernelSteinDiscrepancy
 
 # ── Device / dtype ────────────────────────────────────────────────────────────
 if torch.cuda.is_available():
@@ -28,7 +27,7 @@ torch.set_default_dtype(torch.float64)
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-EXP_NAME = 'joker'
+EXP_NAME = 'funnel'
 PARAM = ''
 EXP_NAME = EXP_NAME +'_'+ str(PARAM)
 
@@ -45,21 +44,28 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 
-# ── Target: Joker density ────────────────────────────────────────────────
+# ── Target: Funnel density ────────────────────────────────────────────────
 
 #beta = float(PARAM)
-post_log_dens = joker.logpdf  # already a callable (x: Tensor) -> Tensor
+DIM = 2
+post_log_dens = funnel.logpdf_factory(DIM)  # already a callable (x: Tensor) -> Tensor
+
+#funnel_log_density = funnel.logpdf_factory(DIM)
+# estimator_fredholm = MSIPFredholm(
+#     gradient_decay=1.00,
+#     log_dens_grad_val=torch.vmap(torch.func.grad_and_value(funnel_log_density))
+# )
 
 post_log_dens_grad_val = torch.func.grad_and_value(post_log_dens)
 post_log_dens_grad_val_batch = torch.vmap(post_log_dens_grad_val)
 
-# Vectorized version for the metric.
+# Vectorized log-density, still needed by the gradient-free MSIP variant
+# and by the density-background plot.
 post_log_dens_batch = torch.vmap(post_log_dens)
 
-cross_entropy_metric = CrossEntropy(
-    post_log_dens_batch,
-    is_log_dens_vectorized=True,
-)
+# KSD requires the score function grad log pi, not log pi itself.
+post_grad_log_dens = torch.func.grad(post_log_dens)
+post_grad_log_dens_batch = torch.vmap(post_grad_log_dens)
 
 
 # ── Benchmark hyper-parameters ────────────────────────────────────────────────
@@ -70,16 +76,23 @@ R = 5
 
 
 # Learning rates. Change these here if needed.
-lr = 0.5
-lr_msip = 0.5
+lr = 0.1
+lr_msip = 0.1
 lr_aldi = 0.005
 
 kernel_length_scale = 0.1
+
+ksd_metric = KernelSteinDiscrepancy(
+    post_grad_log_dens_batch,
+    kernel_length_scale=kernel_length_scale,
+    is_grad_vectorized=True,
+)
+
 kernel_diag_infl = 1e-6
 gradient_decay = 1.0
 bounds = (-1000.0, 1000.0)
 
-# Same spirit as your older Joker script: initialize away from the modes.
+# Same spirit as your older Funnel script: initialize away from the modes.
 init_mean = torch.tensor([0.0, 0.0])
 init_std = 1.0
 
@@ -90,7 +103,8 @@ base_seed = 314159
 # Single-run helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-N_QUAD = 1
+N_QUAD = 10
+N_QUAD_GF = 10
 def mc_quad_rule(batch_size: int, N_quad: int = N_QUAD, dim: int = 2):
     pts = torch.randn((batch_size, N_quad, dim))
     wts = torch.ones((batch_size, N_quad)).div_(N_quad)
@@ -107,16 +121,16 @@ def make_init_particles(n_particles: int, run_idx: int, M: int) -> torch.Tensor:
 #     return -5.0 + 10.0 * torch.rand((n_particles, 2))
 
 
-def final_cross_entropy(name: str, pts: torch.Tensor, wts: torch.Tensor | None = None) -> float:
-    """Compute final cross entropy; normalize weights when present."""
+def final_ksd(name: str, pts: torch.Tensor, wts: torch.Tensor | None = None) -> float:
+    """Compute final Kernel Stein Discrepancy; normalize weights when present."""
     if wts is not None:
         wts = wts / wts.sum()
-    return cross_entropy_metric(pts, wts=wts).item()
+    return ksd_metric(pts, wts=wts).item()
 
 
 def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Tensor):
     """
-    Run one algorithm for T iterations and return only the final cross entropy.
+    Run one algorithm for T iterations and return only the final KSD.
     """
     if algo_name == "a-SVGD":
         trajectories = svgd(
@@ -132,7 +146,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             compile_step=False,
             verbose=False,
         )
-        return final_cross_entropy(algo_name, trajectories[-1])
+        return final_ksd(algo_name, trajectories[-1]), final_ksd(algo_name, trajectories[-1])
     if algo_name == "SVGD":
         trajectories = svgd(
             post_log_dens,
@@ -146,7 +160,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             compile_step=False,
             verbose=False,
         )
-        return final_cross_entropy(algo_name, trajectories[-1])
+        return final_ksd(algo_name, trajectories[-1]), final_ksd(algo_name, trajectories[-1])
 
     if algo_name == "DeepEnsembles":
         trajectories = deepensembles(
@@ -161,7 +175,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             verbose=False,
         )
         #print(trajectories)
-        return final_cross_entropy(algo_name, trajectories[-1])
+        return final_ksd(algo_name, trajectories[-1]), final_ksd(algo_name, trajectories[-1])
 
     if algo_name == "GI-ALDI":
         trajectories = grad_aldi(
@@ -175,7 +189,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             compile_step=False,
             verbose=False,
         )
-        return final_cross_entropy(algo_name, trajectories[-1])
+        return final_ksd(algo_name, trajectories[-1]), final_ksd(algo_name, trajectories[-1])
 
     if algo_name == "MSIP-Fredholm":
         msip_fredholm = MSIPFredholm(gradient_decay, post_log_dens_grad_val_batch)
@@ -194,7 +208,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             compile_step=False,
             verbose=False,
         )
-        return final_cross_entropy(algo_name, trajectories[-1], wts=traj_wts[-1])
+        return final_ksd(algo_name, trajectories[-1], wts=traj_wts[-1]), final_ksd(algo_name, trajectories[-1])
     
     if algo_name == "MSIP-GI":
         #msip_fredholm = MSIPFredholm(gradient_decay, post_log_dens_grad_val_batch)
@@ -208,7 +222,7 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
             n_particles,
             T,
             dim=2,
-            lr=lr_msip/5,
+            lr=lr_msip,
             init_particles=init_particles.clone(),
             kernel_length_scale=kernel_length_scale,
             kernel_diag_infl=kernel_diag_infl,
@@ -222,7 +236,31 @@ def run_one_algorithm(algo_name: str, n_particles: int, init_particles: torch.Te
 
 
         
-        return final_cross_entropy(algo_name, trajectories[-1], wts=traj_wts[-1])
+        return final_ksd(algo_name, trajectories[-1], wts=traj_wts[-1]), final_ksd(algo_name, trajectories[-1])
+
+    if algo_name == "MSIP-GF":
+        #msip_fredholm = MSIPFredholm(gradient_decay, post_log_dens_grad_val_batch)
+        msip_qg = MSIPQuadGradientFree(
+            post_log_dens_batch,
+            partial(mc_quad_rule, N_quad=N_QUAD_GF),
+        )
+        trajectories, traj_wts = msip(
+            msip_qg,
+            M,
+            T,
+            dim=2,
+            lr=lr_msip/5,
+            init_particles=init_particles.clone(),
+            kernel_length_scale=kernel_length_scale,
+            kernel_diag_infl=kernel_diag_infl,
+            bounds=bounds,
+            gradient_decay=gradient_decay,
+            keep_all=True,
+            compile_step=False,
+            verbose=False,
+        )
+    
+        return final_ksd(algo_name, trajectories[-1], wts=traj_wts[-1]), final_ksd(algo_name, trajectories[-1])
 
     raise ValueError(f"Unknown algorithm: {algo_name}")
 
@@ -237,16 +275,22 @@ algo_names = [
     "GI-ALDI",
     "MSIP-Fredholm",
     "MSIP-GI",
+    "MSIP-GF",
     "DeepEnsembles",
 ]
 
-# results[M][algo] = list of R final cross entropy values
+# results[M][algo] = list of R final KSD values
 results = {
     M: {algo_name: [] for algo_name in algo_names}
     for M in M_values
 }
 
-print("Running final-cross-entropy benchmark")
+results_uw = {
+    M: {algo_name: [] for algo_name in algo_names}
+    for M in M_values
+}
+
+print("Running final-KSD benchmark")
 print(f"T = {T}, R = {R}, M_values = {M_values}")
 print(f"lr = {lr}, lr_msip = {lr_msip}, kernel_length_scale = {kernel_length_scale}")
 print()
@@ -257,8 +301,9 @@ for M in M_values:
         init_particles = make_init_particles(M, run_idx, M)
 
         for algo_name in algo_names:
-            ce = run_one_algorithm(algo_name, M, init_particles)
+            ce, uwce = run_one_algorithm(algo_name, M, init_particles)
             results[M][algo_name].append(ce)
+            results_uw[M][algo_name].append(uwce)
 
         print(f"  run {run_idx + 1:02d}/{R} done")
     print()
@@ -268,7 +313,7 @@ for M in M_values:
 # Report table
 # ══════════════════════════════════════════════════════════════════════════════
 
-print("\nFinal cross entropy over R runs")
+print("\nFinal KSD over R runs")
 print("smaller is better")
 print()
 print(f"{'M':>5}  {'Algorithm':<16}  {'mean':>14}  {'std':>14}")
@@ -282,6 +327,22 @@ for M in M_values:
         std = vals.std(unbiased=True).item() if R > 1 else 0.0
         summary_rows.append((M, algo_name, mean, std))
         print(f"{M:5d}  {algo_name:<16}  {mean:14.6f}  {std:14.6f}")
+        
+        
+print("\nFinal (UW) KSD over R runs")
+print("smaller is better")
+print()
+print(f"{'M':>5}  {'Algorithm':<16}  {'mean':>14}  {'std':>14}")
+print("-" * 55)
+
+summary_rows = []
+for M in M_values:
+    for algo_name in algo_names:
+        vals = torch.tensor(results_uw[M][algo_name], dtype=torch.float64)
+        mean = vals.mean().item()
+        std = vals.std(unbiased=True).item() if R > 1 else 0.0
+        summary_rows.append((M, algo_name, mean, std))
+        print(f"{M:5d}  {algo_name:<16}  {mean:14.6f}  {std:14.6f}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -290,7 +351,7 @@ for M in M_values:
 path = "results/"+EXP_NAME+"/pdf/"
 
 out_name = (
-    path+EXP_NAME+"_final_cross_entropy_"
+    path+EXP_NAME+"_final_ksd_"
     f"M_{M}_T_{T}_R_{R}_sigma_{kernel_length_scale}.pt"
 )
 
@@ -301,6 +362,7 @@ torch.save(
         "M_values": M_values,
         "algo_names": algo_names,
         "results": results,
+        "results_uw": results_uw,
         "summary_rows": summary_rows,
         "lr": lr,
         "lr_msip": lr_msip,
@@ -318,7 +380,7 @@ print(f"\nSaved raw results to {out_name}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Optional: plot mean final cross entropy vs M
+# Optional: plot mean final KSD vs M
 # ══════════════════════════════════════════════════════════════════════════════
 
 fig, ax = plt.subplots(figsize=(8, 5))
@@ -333,14 +395,14 @@ for algo_name in algo_names:
     ax.errorbar(M_values, means, yerr=stds, marker="o", capsize=4, label=algo_name)
 
 ax.set_xlabel("Number of particles M")
-ax.set_ylabel(r"Final cross entropy  $-\mathbb{E}_{\mu_T}[\log \pi]$")
-ax.set_title(f"Final cross entropy after T={T} iterations, R={R} runs")
+ax.set_ylabel(r"Final KSD")
+ax.set_title(f"Final KSD after T={T} iterations, R={R} runs")
 ax.legend(fontsize=8)
 plt.tight_layout()
 
 
 fig_name = (
-    path+EXP_NAME+"_final_cross_entropy_vs_"
+    path+EXP_NAME+"_final_ksd_vs_"
     f"M_{M}_T_{T}_R_{R}_sigma_{kernel_length_scale}.pdf"
 )
 plt.savefig(fig_name)
@@ -358,7 +420,7 @@ M = M_values[-1]
 run_idx = R - 1
 init_particles = make_init_particles(M, run_idx, M)
 
-# Background grid for the Joker density
+# Background grid for the Funnel density
 grid_res = 200
 x_range = torch.linspace(-3, 3, grid_res)
 y_range = torch.linspace(-3, 3, grid_res)
@@ -440,6 +502,45 @@ for ax_idx, algo_name in enumerate(algo_names):
         pts = trajs[-1]
         wts = traj_wts[-1]
         wts = (wts / wts.sum()).cpu().numpy()
+        
+    elif algo_name == "MSIP-GF":
+        
+        
+        msip_qg = MSIPQuadGradientFree(
+            post_log_dens_batch,
+            partial(mc_quad_rule, N_quad=N_QUAD_GF),
+        )
+        trajs, traj_wts = msip(
+            msip_qg,
+            M,
+            T,
+            dim=2,
+            lr=lr_msip,
+            init_particles=init_particles.clone(),
+            kernel_length_scale=kernel_length_scale,
+            kernel_diag_infl=kernel_diag_infl,
+            bounds=bounds,
+            gradient_decay=gradient_decay,
+            keep_all=True,
+            compile_step=False,
+            verbose=False,
+        )
+        
+        # msip_qg = MSIPQuadGradientInformed(
+        #     post_log_dens_grad_val_batch,
+        #     partial(mc_quad_rule, N_quad=N_QUAD), 1.0,
+        # )
+        # trajs, traj_wts = msip(msip_qg, M, T, dim=2, lr=lr_msip/5,
+        #                        init_particles=init_particles.clone(),
+        #                        kernel_length_scale=kernel_length_scale,
+        #                        kernel_diag_infl=kernel_diag_infl, bounds=bounds,
+        #                        gradient_decay=gradient_decay, keep_all=True,
+        #                        compile_step=False, verbose=False)
+        pts = trajs[-1]
+        wts = traj_wts[-1]
+        wts = (wts / wts.sum()).cpu().numpy()
+        
+        print(wts)
 
     # ── scatter particles ─────────────────────────────────────────────────
     xy = pts.cpu().numpy()
@@ -463,7 +564,7 @@ for ax in axes[n_algos:]:
     ax.set_visible(False)
 
 fig.suptitle(
-    f"Final particles — Joker (M={M}, T={T}, run {R}/{R})",
+    f"Final particles — Funnel (M={M}, T={T}, run {R}/{R})",
     fontsize=13, y=1.02,
 )
 plt.tight_layout()
