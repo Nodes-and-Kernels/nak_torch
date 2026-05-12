@@ -8,9 +8,8 @@ from functions import himmelblau
 from nak_torch import nak
 from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
-from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
+from nak_torch.tools.quadrature import gauss_MC, spherical_MC_radial_Laguerre
 from datetime import datetime
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, DEFAULT_KERNEL_MATRIX
 
 save_gif = False
 function_name = "himmelblau"
@@ -25,8 +24,8 @@ torch.manual_seed(19230182)
 init_particles = torch.randn((n_particles, 2)) + 8.0
 params = {
     "n_steps": 100,
-    "bounds": (-15, 15),
-    "kernel_lengthscale": 0.15,
+    "bounds": (-10, 10),
+    "kernel_lengthscale": 0.2,
     "init_particles": init_particles,
     "n_particles": n_particles,
     "dim": 2,
@@ -37,11 +36,11 @@ params = {
 
 # %%
 msip = MSIP(**params)
-svgd = SVGD(**params)
+svgd = SVGD(kernel_lengthscale_quantile=0.5, **params)
 
 # %%
 target_msip_fr = MSIPFredholm(
-    gradient_decay=0.95,
+    gradient_decay=1.0,
     log_dens_grad_val=torch.vmap(
         torch.func.grad_and_value(log_density),
         in_dims=(0,None)
@@ -87,11 +86,14 @@ plt.show()
 # %%
 target_msip_gf = MSIPQuadGradientFree(
     log_density,
-    lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
+    # lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
+    lambda b: gauss_MC(b, 10, 2, torch.default_generator)
 )
 params_gf = params.copy()
-params_gf['lr'] = 0.8
+params_gf['lr'] = 0.75
 n_particles = 25
+rng = torch.Generator()
+rng.manual_seed(12321)
 trajectories_pts_gf,trajectories_wts_gf = nak(target_msip_gf, msip, **params_gf)
 
 # %%
@@ -106,7 +108,7 @@ batch_grad_log_dens = torch.vmap(torch.func.grad(log_density), in_dims=(0,None))
 def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
     return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
 ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
-print("KSD", ksd_eval(pts_fr, wts_fr), ksd_eval(pts_svgd), ksd_eval(pts_gf, wts_gf))
+print("KSD", ksd_eval(pts_fr, wts_fr).item(), ksd_eval(pts_svgd).item(), ksd_eval(pts_gf, wts_gf).item())
 
 # %%
 ress = nak_torch.metrics.RelativeESS(batch_log_dens)
@@ -126,7 +128,7 @@ extrema_pts = [(pt.min(), pt.max()) for pt in pt_list]
 g_min, g_max = [m(x[i] for x in extrema_pts) for (m,i) in [(min,0), (max,1)]]
 extrema_wts = [(w.min(), w.max()) for w in wt_list if w is not None]
 vmin, vmax = [m(x[i] for x in extrema_wts) for (m,i) in [(min,0), (max,1)]]
-titles = ["Initialization", "SVGD", "MSIP-1", "MSIP-GF"]
+titles = ["Initialization", "SVGD", "MSIP-F", "MSIP-GF"]
 title_weights = [None, None, 'heavy', 'heavy']
 for (ax, title, pt, wt, title_wt) in zip(axs, titles, pt_list, wt_list, title_weights):
     ax.set_axis_off()
