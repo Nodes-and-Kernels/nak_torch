@@ -87,16 +87,16 @@ plt.show()
 target_msip_gf = MSIPQuadGradientFree(
     log_density,
     # lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
-    lambda b: gauss_MC(b, 10, 2, torch.default_generator)
+    lambda b: gauss_MC(b, 5, 2, torch.default_generator)
 )
 params_gf = params.copy()
-params_gf['lr'] = 0.75
+params_gf['lr'] = 0.85
+params_gf['n_steps'] = 100
 n_particles = 25
 rng = torch.Generator()
 rng.manual_seed(12321)
 trajectories_pts_gf,trajectories_wts_gf = nak(target_msip_gf, msip, **params_gf)
 
-# %%
 pts_gf = trajectories_pts_gf[-1]
 wts_gf = trajectories_wts_gf[-1]
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
