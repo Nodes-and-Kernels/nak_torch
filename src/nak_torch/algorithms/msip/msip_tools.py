@@ -61,7 +61,7 @@ class GeneralMSIPAlgorithm(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, Algorithm
         self.kernel_diag_infl = kernel_diag_infl
         if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
             raise ValueError(
-                "Must have either kernel_lengthscale"
+                "Must have either kernel_lengthscale "
                 "or kernel_lengthscale_quantile as value"
             )
         if kernel_lengthscale is None:
