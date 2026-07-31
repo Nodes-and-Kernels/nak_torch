@@ -7,12 +7,12 @@
 # 05/12/2025
 
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 
 __all__ = ["DeepEnsembles"]
 
 
-class DeepEnsembles(UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None]):
+class DeepEnsembles(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityGradEvaluator, None]):
     def initialize(self, init_particles, target, target_args):
         return None, None
 

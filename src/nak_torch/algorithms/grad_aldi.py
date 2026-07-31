@@ -2,7 +2,7 @@ import torch
 from typing import Optional
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
 from nak_torch.tools.types import (
-    BatchGradLogDensityEvaluator,
+    BatchLogDensityGradEvaluator,
     BatchPtType,
     DeviceLike,
 )
@@ -43,7 +43,7 @@ def grad_aldi_step(
     return drift_term, particles_noise
 
 
-class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, None]):
+class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityGradEvaluator, None]):
     rng: torch.Generator
 
     def _sqrt(self, x: float):

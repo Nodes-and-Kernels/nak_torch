@@ -2,7 +2,7 @@
 import torch
 import matplotlib.pyplot as plt
 import nak_torch
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 from viz_tools import animate_trajectories_box
 from functions import himmelblau
 from nak_torch import nak
@@ -68,7 +68,7 @@ s = plt.scatter(
 plt.show()
 
 # %%
-target_svgd = BatchGradLogDensityEvaluator(log_density, is_grad=False, is_batched=False)
+target_svgd = BatchLogDensityGradEvaluator(log_density, is_grad=False, is_batched=False)
 trajectories_svgd = nak(target_svgd, svgd, **params)
 
 # %%

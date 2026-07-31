@@ -20,7 +20,7 @@ from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
 import scipy.io
 import numpy as np
 
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 
 if torch.cuda.is_available():
     torch.set_default_device("cuda")
@@ -173,7 +173,7 @@ svgd = SVGD(
     kernel_lengthscale_quantile=0.5
 )
 
-target_svgd = BatchGradLogDensityEvaluator(
+target_svgd = BatchLogDensityGradEvaluator(
     log_dens, is_grad=False, is_batched=True
 )
 

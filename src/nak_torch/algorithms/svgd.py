@@ -12,7 +12,7 @@ import torch
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
 from nak_torch.tools.kernel import DEFAULT_KERNEL_ELEM
 from nak_torch.tools.types import (
-    BatchGradLogDensityEvaluator,
+    BatchLogDensityGradEvaluator,
     BatchKernelGradValFunction,
     DeviceLike,
     KernelFunction,
@@ -57,7 +57,7 @@ class SVGDAlgorithmArgs:
 
 
 class SVGD(
-    UnweightedAdaptiveNAKAlgorithm[BatchGradLogDensityEvaluator, SVGDAlgorithmArgs]
+    UnweightedAdaptiveNAKAlgorithm[BatchLogDensityGradEvaluator, SVGDAlgorithmArgs]
 ):
     default_kernel_lengthscale: float
     kernel_lengthscale_quantile: Optional[float]

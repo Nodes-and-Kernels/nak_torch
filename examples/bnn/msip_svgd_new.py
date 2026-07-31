@@ -4,7 +4,7 @@ import nak_torch
 from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm
 import bnn_impl as bnn
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 from nak_torch.tools.util import infinite_iter
 
 # %%
@@ -76,7 +76,7 @@ trajectories_pts_msip_fr, trajectories_wts_msip_fr = nak_torch.nak(
 bnn.eval_function_trajectories(bnn_posterior, trajectories_pts_msip_fr.double(), "MSIP")
 
 # %%
-target_svgd = BatchGradLogDensityEvaluator(
+target_svgd = BatchLogDensityGradEvaluator(
     bnn_posterior, is_grad=False, is_batched=True
 )
 

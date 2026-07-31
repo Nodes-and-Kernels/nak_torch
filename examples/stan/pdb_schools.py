@@ -8,7 +8,7 @@ import nak_torch
 from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm
 from nak_torch.tools import stan_tools
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 
 nest_asyncio.apply() # See pystan documentation on why you need this when doing jupyter
 import stan  # noqa: E402
@@ -73,7 +73,7 @@ trajectories_msip_fr = nak_torch.nak(
 trajectories_pts_msip_fr, trajectories_wts_msip_fr = trajectories_msip_fr
 
 # %%
-target_svgd = BatchGradLogDensityEvaluator(
+target_svgd = BatchLogDensityGradEvaluator(
     stan_model.grad_log_dens_batch,
     is_grad=True,
     is_batched=True

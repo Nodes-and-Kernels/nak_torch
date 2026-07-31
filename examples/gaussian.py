@@ -16,7 +16,7 @@ from nak_torch.algorithms.msip import (
     MSIPQuadGradientFree,
 )
 from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
-from nak_torch.tools.types import BatchGradLogDensityEvaluator, BatchLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator, BatchLogDensityEvaluator
 
 if torch.cuda.is_available():
     torch.set_default_device("cuda")
@@ -116,7 +116,7 @@ trajectories_eks = nak_torch.nak(
 
 # %%
 grad_aldi = GradALDI(dim=2, n_particles=n_particles, rng=rng)
-grad_aldi_target = BatchGradLogDensityEvaluator(
+grad_aldi_target = BatchLogDensityGradEvaluator(
     post_log_dens, is_grad=False, is_batched=True
 )
 trajectories_galdi = nak_torch.nak(
@@ -160,7 +160,7 @@ trajectories_cbs = nak_torch.nak(
 )
 
 # %%
-target_svgd = BatchGradLogDensityEvaluator(
+target_svgd = BatchLogDensityGradEvaluator(
     post_log_dens, is_grad=False, is_batched=True
 )
 svgd = SVGD(

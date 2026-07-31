@@ -87,7 +87,31 @@ class BatchLogDensityEvaluator(BatchTargetEvaluator[BatchType]):
         return self.log_density(pts, target_args)
 
 
-class BatchGradLogDensityEvaluator(BatchTargetEvaluator[BatchPtType]):
+class BatchLogDensityGradValEvaluator(
+    BatchTargetEvaluator[tuple[BatchPtType, BatchType]]
+):
+    grad_val_log_density: BatchLogDensityGradVal
+
+    def __init__(self, log_density: LogDensity | BatchLogDensity, is_batched: bool):
+        if is_batched:
+
+            def aux_lam(x: BatchPtType, p: Any) -> tuple[Float, BatchType]:
+                log_pi_x = log_density(x, p)
+                return log_pi_x.sum(), log_pi_x
+
+            self.grad_val_log_density = torch.func.grad(aux_lam, has_aux=True)
+        else:
+            grad_val_log_density = torch.func.grad_and_value(log_density)
+            self.grad_val_log_density = torch.vmap(
+                grad_val_log_density, in_dims=(0, None)
+            )
+        self.log_density = log_density
+
+    def __call__(self, pts, target_args):
+        return self.grad_val_log_density(pts, target_args)
+
+
+class BatchLogDensityGradEvaluator(BatchTargetEvaluator[BatchPtType]):
     grad_log_density: BatchGradLogDensity
 
     def __init__(
