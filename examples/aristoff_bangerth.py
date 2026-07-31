@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from nak_torch.tools.kernel import sqexp_kernel_matrix
 from tqdm import tqdm
 import pandas as pd
-from nak_torch.tools.types import BatchGradLogDensityEvaluator
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 from nak_torch.tools import pyro_tools
 from pyro.infer import mcmc
 
@@ -129,7 +129,7 @@ mcmc_setup.run(model.true_obs)
 hmc_samples = mcmc_setup.get_samples()["theta"]
 
 # %%
-target_svgd = BatchGradLogDensityEvaluator(
+target_svgd = BatchLogDensityGradEvaluator(
     log_p, is_grad=False, is_batched=True
 )
 
