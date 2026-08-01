@@ -83,10 +83,11 @@ class GeneralMSIPAlgorithm(WeightedAdaptiveNAKAlgorithm[MSIPEstimator, Algorithm
     def get_infl_kernel_matrix(self, particles, kernel_lengthscale) -> KernelMatrixType:
         kernel_matrix = self.get_kernel_matrix(particles, kernel_lengthscale)
         if self.kernel_diag_infl is not None:
-            kernel_matrix[
-                torch.arange(self.n_particles, device=self.device),
-                torch.arange(self.n_particles, device=self.device),
-            ] += self.kernel_diag_infl
+            kernel_matrix += self.kernel_diag_infl * torch.eye(
+                kernel_matrix.shape[0],
+                dtype=kernel_matrix.dtype,
+                device=kernel_matrix.device,
+            )
         return kernel_matrix
 
 
