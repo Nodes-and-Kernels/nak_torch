@@ -6,8 +6,7 @@
 # Ayoub Belhadji
 # 05/12/2025
 
-from dataclasses import dataclass
-from typing import Optional
+from typing import NamedTuple, Optional
 import torch
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
 from nak_torch.tools.kernel import DEFAULT_KERNEL_ELEM
@@ -50,8 +49,7 @@ def svgd_step(
     return (term_1 + term_2) / points.shape[0]
 
 
-@dataclass
-class SVGDAlgorithmArgs:
+class SVGDAlgorithmArgs(NamedTuple):
     kernel_lengthscale: float
     historical_grad: BatchPtType
 
