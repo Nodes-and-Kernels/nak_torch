@@ -105,7 +105,6 @@ class BatchLogDensityGradValEvaluator(
             self.grad_val_log_density = torch.vmap(
                 grad_val_log_density, in_dims=(0, None)
             )
-        self.log_density = log_density
 
     def __call__(self, pts, target_args):
         return self.grad_val_log_density(pts, target_args)
