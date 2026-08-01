@@ -42,14 +42,11 @@ def nak(
         raise ValueError("Expected positive number of steps.")
 
     dim, device, dtype = algorithm.dim, algorithm.device, algorithm.dtype
-    rng: torch.Generator
     if isinstance(rng_or_seed, int):
         rng = torch.Generator(device)
         rng.manual_seed(rng_or_seed)
-    elif rng_or_seed is not None:
-        rng = rng_or_seed
     else:
-        rng = torch.default_generator
+        rng = rng_or_seed
 
     particles = initialize_particles(
         n_particles, dim, init_particles, device, dtype, bounds, rng=rng
