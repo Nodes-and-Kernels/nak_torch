@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import Generic, Optional, TypeVar
+from typing import Generic, NamedTuple, Optional, TypeVar
 
 import torch
 
+from nak_torch.algorithms.msip.msip_map import msip_map_one_output
 from nak_torch.tools.func import AlgorithmArgsT, WeightedAdaptiveNAKAlgorithm
 from nak_torch.tools.kernel import DEFAULT_KERNEL_MATRIX
 from nak_torch.tools.util import get_keywords, quantile_distance
-from .msip_map import msip_map
 from .estimators import MSIPEstimator, MSIPFredholm
 
 from nak_torch.tools.types import (
@@ -25,8 +25,7 @@ MSIPEstimatorOutputT = TypeVar("MSIPEstimatorOutputT", bound=MSIPEstimatorOutput
 MSIPAlgorithmArgsT = TypeVar("MSIPAlgorithmArgsT")
 
 
-@dataclass
-class MSIPAlgorithmArgs(Generic[MSIPEstimatorOutputT]):
+class MSIPAlgorithmArgs(NamedTuple, Generic[MSIPEstimatorOutputT]):
     kernel_lengthscale: float
     kernel_matrix: KernelMatrixType
     msip_estimator_output: MSIPEstimatorOutputT
@@ -113,4 +112,6 @@ def process_msip_density(
     return MSIPFredholm(gradient_decay, log_density_grad_val)
 
 
-msip_map_used_keys = get_keywords(msip_map) + get_keywords(process_msip_density)
+msip_map_used_keys = get_keywords(msip_map_one_output) + get_keywords(
+    process_msip_density
+)

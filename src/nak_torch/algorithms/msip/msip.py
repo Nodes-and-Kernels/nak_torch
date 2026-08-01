@@ -1,9 +1,7 @@
-from dataclasses import astuple
-
 import torch
 
 from nak_torch.algorithms.msip.msip_tools import GeneralMSIPAlgorithm, MSIPAlgorithmArgs
-from .msip_map import msip_map, get_msip_wts
+from .msip_map import get_msip_wts, msip_map_all_output
 
 __all__ = ["MSIP"]
 
@@ -19,15 +17,14 @@ class MSIP(GeneralMSIPAlgorithm[MSIPAlgorithmArgs]):
         )
 
     def step(self, lr, particles, target, algorithm_args, target_args):
-        kernel_lengthscale, kernel_matrix, estimator_output = astuple(algorithm_args)
+        kernel_lengthscale, kernel_matrix, estimator_output = algorithm_args
         kernel_matrix_inverse = torch.linalg.inv(kernel_matrix)
 
         # Update the particles
-        particles_diff = msip_map(
+        particles_diff = msip_map_all_output(
             estimator_output,
             particles,
             kernel_matrix_inverse,
-            output_idx=None,
         )
         new_particles = particles_diff.mul_(lr).add_(particles.mul(1 - lr))
 
