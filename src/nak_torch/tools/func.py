@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Callable, Generic, Optional, TypeVar
 import warnings
 import torch
 from .types import (
@@ -20,6 +20,10 @@ class GeneralAdaptiveNAKAlgorithm(ABC, Generic[NAKTargetT, WeightT, AlgorithmArg
     device: Optional[DeviceLike]
     dtype: Optional[torch.dtype]
     verbose: bool
+    internal_step: Callable[
+        [float, BatchPtType, NAKTargetT, AlgorithmArgsT, Any],
+        tuple[BatchPtType, WeightT, AlgorithmArgsT],
+    ]
 
     def __init__(
         self,
@@ -28,6 +32,7 @@ class GeneralAdaptiveNAKAlgorithm(ABC, Generic[NAKTargetT, WeightT, AlgorithmArg
         device: Optional[DeviceLike],
         dtype: Optional[torch.dtype],
         verbose: bool = True,
+        use_compiled: bool | Callable = False,
         **kwargs,
     ):
         self.dim = dim
@@ -40,6 +45,12 @@ class GeneralAdaptiveNAKAlgorithm(ABC, Generic[NAKTargetT, WeightT, AlgorithmArg
         self.verbose = verbose
         if verbose and len(kwargs) > 0:
             warnings.warn(f"Unused kwargs:\n{kwargs}")
+        if isinstance(use_compiled, bool) and use_compiled:
+            self.internal_step = torch.compile(self.step)
+        elif isinstance(use_compiled, Callable):
+            self.internal_step = use_compiled(self.step)
+        else:
+            self.internal_step = self.step
 
     @abstractmethod
     def initialize(

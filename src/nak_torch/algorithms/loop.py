@@ -62,7 +62,7 @@ def nak(
             (n_steps + 1, *particles.shape), device=device, dtype=dtype
         )
         trajectories[0].copy_(particles)
-        if algorithm.is_weighted():
+        if algorithm.is_weighted() and particle_wts is not None:
             traj_wts = torch.empty(
                 (n_steps + 1, particles.shape[0]), device=device, dtype=dtype
             )
@@ -76,13 +76,13 @@ def nak(
     for idx in tqdm(range(n_steps - 1), disable=not verbose):
         if keep_all:
             trajectories[idx + 1].copy_(particles)
-            if algorithm.is_weighted():
+            if algorithm.is_weighted() and particle_wts is not None:
                 traj_wts[idx + 1].copy_(particle_wts)
 
         if get_target_args is not None:
             target_args = next(get_target_args)
 
-        particles, particle_wts, algorithm_args = algorithm.step(
+        particles, particle_wts, algorithm_args = algorithm.internal_step(
             lr, particles, target, algorithm_args, target_args
         )
 
@@ -91,11 +91,11 @@ def nak(
 
     if keep_all:
         trajectories[-1].copy_(particles)
-        if algorithm.is_weighted():
+        if algorithm.is_weighted() and particle_wts is not None:
             traj_wts[-1].copy_(particle_wts)
     else:
         trajectories = particles.unsqueeze_(0)
-        if algorithm.is_weighted():
+        if algorithm.is_weighted() and particle_wts is not None:
             traj_wts = particle_wts.unsqueeze_(0)
 
     if algorithm.is_weighted():
