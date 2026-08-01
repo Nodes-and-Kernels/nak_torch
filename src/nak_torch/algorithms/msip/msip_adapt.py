@@ -7,7 +7,7 @@ import torch
 
 from nak_torch.tools.kernel import DEFAULT_KERNEL_MATRIX
 from nak_torch.tools.util import initialize_particles, quantile_distance
-from .msip_map import msip_map
+from .msip_map import msip_map_all_output
 from .estimators import MSIPEstimator
 from nak_torch.tools.adaptive_step import default_particle_integrator
 from .msip_tools import msip_map_used_keys, process_msip_density
@@ -41,11 +41,10 @@ def create_msip_diff(
         else:
             kernel_matrix_inverse = torch.linalg.pinv(kernel_matrix)
 
-        particles_diff = msip_map(
+        particles_diff = msip_map_all_output(
             msip_estimator_out,
             particles,
             kernel_matrix_inverse,
-            output_idx=None,
         )
 
         return particles_diff - particles

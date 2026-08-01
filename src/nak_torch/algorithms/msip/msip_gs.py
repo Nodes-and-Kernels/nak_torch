@@ -3,7 +3,7 @@ from dataclasses import astuple
 import torch
 
 
-from .msip_map import msip_map, get_msip_wts
+from .msip_map import get_msip_wts, msip_map_one_output
 from .msip_tools import GeneralMSIPAlgorithm, MSIPGSAlgorithmArgs
 
 __all__ = ["MSIPGS"]
@@ -29,7 +29,9 @@ class MSIPGS(GeneralMSIPAlgorithm[MSIPGSAlgorithmArgs]):
             )
             est_out_0[i].copy_(est_out_i_0.squeeze())
             est_out_1[i].copy_(est_out_i_1.squeeze())
-            target_i = msip_map(estimator_output, new_particles, km_inv_i, output_idx=i)
+            target_i = msip_map_one_output(
+                estimator_output, new_particles, km_inv_i, output_idx=i
+            )
             new_particles[i] = new_particles[i].mul(1.0 - lr).add_(target_i.mul_(lr))
             kernel_matrix = self.get_infl_kernel_matrix(
                 new_particles, kernel_lengthscale
