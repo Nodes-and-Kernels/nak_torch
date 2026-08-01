@@ -6,7 +6,7 @@
 # Ayoub Belhadji
 # 05/12/2025
 
-from dataclasses import astuple, dataclass
+from dataclasses import dataclass
 from typing import Optional
 import torch
 from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
@@ -118,7 +118,7 @@ class SVGD(
     def step(self, lr, particles, target, algorithm_args, target_args):
         kernel_lengthscale: float
         historical_grad: BatchPtType
-        kernel_lengthscale, historical_grad = astuple(algorithm_args)
+        kernel_lengthscale, historical_grad = algorithm_args  # type: ignore
         grad_log_dens_eval = target(particles, target_args)
         particles_diff = svgd_step(
             self.kernel_grad_val, particles, grad_log_dens_eval, kernel_lengthscale
