@@ -11,16 +11,25 @@ from typing import Self
 
 DeviceLike = str | torch.device | int
 
-BatchType = Float[Tensor, "batch"]
 PtType = Float[Tensor, " d"]
+WtType = Float
+ObsType = Float[Tensor, " obs"]
 CovType = Float[Tensor, "d d"]
+
+BatchType = Float[Tensor, "batch"]
 BatchPtType = Float[Tensor, "batch d"]
+BatchWtType = BatchType
+BatchObsType = Float[Tensor, "batch obs"]
+
 DatasetType = Bool[Tensor, "d samples"]
 LabelsType = Bool[Tensor, " batch"]
+
 QuadrulePtType = Float[Tensor, "quad d"]
 QuadruleWtType = Float[Tensor, "quad"]
+
 BatchQuadrulePtType = Float[Tensor, "batch quad d"]
 BatchQuadruleWtType = Float[Tensor, "batch quad"]
+
 KernelMatrixType = Float[Tensor, "batch batch"]
 GradKernelMatrixType = Float[Tensor, "batch batch d"]
 
@@ -56,7 +65,7 @@ class MatSelfKernelFunction(Protocol):
 
 LogDensity = Callable[[PtType, Any], Float]
 
-GradLogDensity = Callable[[PtType, Any], PtType]
+LogDensityGrad = Callable[[PtType, Any], PtType]
 
 LogDensityGradVal = Callable[[PtType, Any], tuple[PtType, Float]]
 
@@ -64,15 +73,13 @@ BatchLogDensity = Callable[[BatchPtType, Any], BatchType]
 
 BatchLogDensityGradVal = Callable[[BatchPtType, Any], DensityGradValOutput]
 
-BatchGradLogDensity = Callable[[BatchPtType, Any], BatchPtType]
+BatchLogDensityGrad = Callable[[BatchPtType, Any], BatchPtType]
 
 BatchQuadratureRule = Callable[[int], tuple[BatchQuadrulePtType, BatchQuadruleWtType]]
 
-ForwardModel = Callable[[Float[Tensor, " dim"], Any], Float[Tensor, " obs"]]
+ForwardModel = Callable[[PtType, Any], ObsType]
 
-BatchForwardModel = Callable[
-    [Float[Tensor, "batch dim"], Any], Float[Tensor, "batch obs"]
-]
+BatchForwardModel = Callable[[BatchPtType, Any], BatchObsType]
 
 
 class BatchLogDensityEvaluator(BatchTargetEvaluator[BatchType]):
@@ -111,14 +118,14 @@ class BatchLogDensityGradValEvaluator(
 
 
 class BatchLogDensityGradEvaluator(BatchTargetEvaluator[BatchPtType]):
-    grad_log_density: BatchGradLogDensity
+    grad_log_density: BatchLogDensityGrad
 
     def __init__(
         self,
         log_density_or_grad: LogDensity
         | BatchLogDensity
-        | GradLogDensity
-        | BatchGradLogDensity,
+        | LogDensityGrad
+        | BatchLogDensityGrad,
         is_grad: bool,
         is_batched: bool,
     ):
@@ -147,18 +154,18 @@ class AbstractModel(NAKTarget):
 @dataclass
 class GaussianModel(AbstractModel):
     forward_model: BatchForwardModel
-    likelihood_precision: float | Float[Tensor, "obs obs"]
-    prior_precision: float | Float[Tensor, "dim dim"]
-    true_obs: Float | Float[Tensor, " obs"]
-    prior_mean: float | Float[Tensor, " dim"]
+    likelihood_precision: Float | Float[Tensor, "obs obs"]
+    prior_precision: Float | CovType
+    true_obs: Float | ObsType
+    prior_mean: Float | PtType
 
     def __init__(
         self,
         forward_model: ForwardModel | BatchForwardModel,
-        likelihood_precision: float | Float[Tensor, "obs obs"] = 1.0,
-        prior_precision: float | Float[Tensor, "dim dim"] = 1.0,
-        true_obs: Float | Float[Tensor, " obs"] = torch.zeros(()),
-        prior_mean: float | Float[Tensor, " dim"] = 0.0,
+        likelihood_precision: Float | Float[Tensor, "obs obs"] = 1.0,
+        prior_precision: Float | CovType = 1.0,
+        true_obs: Float | ObsType = torch.zeros(()),
+        prior_mean: Float | PtType = 0.0,
         is_vectorized: bool = False,
     ):
         batch_forward_model: BatchForwardModel
@@ -206,11 +213,11 @@ class LogisticRegressionModel(AbstractModel):
     """Assumes a gaussian prior and linear model for logits"""
 
     dim: int
-    prior_mean: float | Float[Tensor, " dim"] | None
+    prior_mean: Float | PtType | None
     train_data: Float | Float[Tensor, "dim labels"]
     test_data: Optional[Float | Float[Tensor, "dim labels"]]
-    train_labels: Float | Float[Tensor, " labels"]
-    test_labels: Optional[Float | Float[Tensor, " labels"]]
+    train_labels: Float | LabelsType
+    test_labels: Optional[Float | LabelsType]
     use_mean_reduction: bool
     hyperprior: torch.distributions.Gamma
 
@@ -218,7 +225,7 @@ class LogisticRegressionModel(AbstractModel):
         self,
         data_or_fname: Float[Tensor, "labels dim-1"] | str,
         labels: Optional[Float[Tensor, " labels"]],
-        prior_mean: float | Float[Tensor, " dim"] | None = None,
+        prior_mean: Float | PtType | None = None,
         dtype=None,
         device=None,
         hyperprior_a=1.0,

@@ -8,12 +8,12 @@ from jaxtyping import Float
 import torch
 from torch import Tensor
 from .types import (
-    BatchGradLogDensity,
+    BatchLogDensityGrad,
     BatchLogDensityGradVal,
     BatchType,
     BatchPtType,
     BatchLogDensity,
-    GradLogDensity,
+    LogDensityGrad,
     KernelFunction,
     KernelMatrixType,
     LogDensity,
@@ -140,7 +140,7 @@ class RelativeESS(GradFreeMetric):
         return torch.logsumexp(2 * log_norm_wts, dim=0).neg_().exp_().div_(N)
 
 
-AnyLogDensGrad = GradLogDensity | BatchGradLogDensity
+AnyLogDensGrad = LogDensityGrad | BatchLogDensityGrad
 
 
 class KernelSteinDiscrepancy(Metric):

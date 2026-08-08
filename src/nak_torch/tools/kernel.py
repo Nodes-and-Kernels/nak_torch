@@ -9,8 +9,8 @@ from .types import (
     PtType,
     BatchPtType,
     KernelMatrixType,
-    GradLogDensity,
-    BatchGradLogDensity,
+    LogDensityGrad,
+    BatchLogDensityGrad,
     GradKernelMatrixType,
 )
 
@@ -123,7 +123,7 @@ def stein_kernel_diffs_factory(
 
 
 def stein_kernel_mat_factory(
-    grad_log_p: GradLogDensity | BatchGradLogDensity,
+    grad_log_p: LogDensityGrad | BatchLogDensityGrad,
     kernel_fcn: KernelFunction,
     target_args: Any,
     is_grad_vectorized: bool = False,
