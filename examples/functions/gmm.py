@@ -28,12 +28,12 @@ class GMM:
         scale_rand = torch.einsum("Nij,Nj->Ni", self.chols[which_modes], base_rand)
         return scale_rand + self.means[which_modes]
 
-    def to(self, *args):
-        return GMM(self.weights.to(*args), self.means.to(*args), self.covs.to(*args))
+    def to(self, *args, **kwargs):
+        return GMM(self.weights.to(*args, **kwargs), self.means.to(*args, **kwargs), self.covs.to(*args, **kwargs))
 
 
 def log_density(pt, gmm: GMM):
-    pt = pt.reshape(-1,2)
+    pt = pt.reshape(-1, gmm.shape[1])
     diff = pt[:,None,:] - gmm.means[None,:,:]
     exponent = -0.5 * torch.einsum("MKi,Kij,MKj->MK", diff, gmm.precs, diff)
     return torch.logsumexp(exponent + gmm.log_constants[None,:], -1).squeeze()
