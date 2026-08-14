@@ -7,10 +7,10 @@ FD_DELTA = 1e-7
 def test_kernel_grad_val_argnum0():
     # Check [grad_1 𝛋(X, Y)]_{ijk} = 𝟃_{x_ik} 𝛋(x_i, y_j)
     GRAD_ARGNUM, bandwidth = 0, 3.231
-    k_grad_val = kernel_grad_and_value_factory(sqexp_kernel_elem, GRAD_ARGNUM, bandwidth)
+    k_grad_val = kernel_grad_and_value_factory(sqexp_kernel_elem, GRAD_ARGNUM)
     pts = torch.ones((2, 3)) * torch.tensor([1., 2.77], dtype=torch.float64).reshape(-1, 1)
     pts2 = torch.ones((5, 3)) * torch.tensor([3.43, -1.2, 1.52321, -5.1, -1.7], dtype=torch.float64).reshape(-1, 1)
-    grad, val = k_grad_val(pts, pts2)
+    grad, val = k_grad_val(pts, pts2, bandwidth)
     actual_val = sqexp_kernel_matrix(pts, bandwidth, pts2)
     assert val == pytest.approx(actual_val)
     pts_fd = pts.clone()
@@ -32,10 +32,10 @@ def test_kernel_grad_val_argnum0():
 def test_kernel_grad_val_argnum1():
     # Check [grad_2 𝛋(X, Y)]_{ijk} = 𝟃_{y_jk} 𝛋(x_i, y_j)
     GRAD_ARGNUM, bandwidth = 1, 3.231
-    k_grad_val = kernel_grad_and_value_factory(sqexp_kernel_elem, GRAD_ARGNUM, bandwidth)
+    k_grad_val = kernel_grad_and_value_factory(sqexp_kernel_elem, GRAD_ARGNUM)
     pts = torch.ones((5, 3)) * torch.tensor([3.43, -1.2, 1.52321, -5.1, -1.7], dtype=torch.float64).reshape(-1, 1)
     pts2 = torch.ones((2, 3)) * torch.tensor([1., 2.77], dtype=torch.float64).reshape(-1, 1)
-    grad, val = k_grad_val(pts, pts2)
+    grad, val = k_grad_val(pts, pts2, bandwidth)
     actual_val = sqexp_kernel_matrix(pts, bandwidth, pts2)
     assert val == pytest.approx(actual_val)
     pts2_fd = pts2.clone()

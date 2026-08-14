@@ -7,6 +7,7 @@ from jaxtyping import Float
 
 import torch
 from torch import Tensor
+import pickle
 from .types import (
     BatchLogDensityGrad,
     BatchLogDensityGradVal,
@@ -159,7 +160,7 @@ class KernelSteinDiscrepancy(Metric):
         use_compiled: bool = False,
     ):
         if kernel_elem is None:
-            kernel_elem = sqexp_kernel_elem
+            kernel_elem = DEFAULT_KERNEL_ELEM
         self.kernel_length_scale = kernel_length_scale
         self.stein_kernel_mat = stein_kernel_mat_factory(
             grad_log_dens,

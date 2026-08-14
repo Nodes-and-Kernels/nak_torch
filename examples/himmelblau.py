@@ -101,6 +101,7 @@ pts_gf = trajectories_pts_gf[-1]
 wts_gf = trajectories_wts_gf[-1]
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
+plt.show()
 
 # %%
 batch_log_dens = torch.vmap(log_density)
@@ -110,13 +111,27 @@ def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
 ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
 print("KSD", ksd_eval(pts_fr, wts_fr).item(), ksd_eval(pts_svgd).item(), ksd_eval(pts_gf, wts_gf).item())
 
-# %%
-ress = nak_torch.metrics.RelativeESS(batch_log_dens)
-print("rESS", ress(pts_fr, wts_fr), ress(pts_svgd), ress(pts_gf, wts_gf))
+ksd_lengthscale = 0.25
 
-# %%
-cross_ent = nak_torch.metrics.CrossEntropy(batch_log_dens)
-print(cross_ent(pts_fr, wts_fr), cross_ent(pts_svgd), cross_ent(pts_gf, wts_gf))
+metrics = {
+    "KSD": nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, ksd_lengthscale, kernel_elem=ksd_kernel_elem),
+    "rESS": nak_torch.metrics.RelativeESS(batch_log_dens),
+    "CrossEntropy": nak_torch.metrics.CrossEntropy(batch_log_dens)
+}
+for metric_name, metric in metrics.items():
+    print(
+        "\n\n" + metric_name,
+        "\nFredholm, weighted",
+        metric(pts_fr, wts_fr).item(),
+        "Fredholm, unweighted",
+        metric(pts_fr).item(),
+        "\nSVGD",
+        metric(pts_svgd).item(),
+        "\nGradient-free, weighted",
+        metric(pts_gf, wts_gf).item(),
+        "\nGradient-free, unweighted",
+        metric(pts_gf).item(),
+    )
 
 # %%
 plt.rcParams["font.family"] = 'serif'
@@ -153,11 +168,5 @@ if save_gif:
         log_density, trajectories_fr, 1, bounds,
         save_path=fpath, writer="ffmpeg"
     )
-    # fpath = f"results/gif/gradfree_{function_name}_particles_{now_stamp}.mp4"
-    # animate_trajectories_box(
-    #     log_density, trajectories_gf, 1, bounds,
-    #     save_path=fpath, writer="ffmpeg"
-    # )
-
 
 # %%
