@@ -9,14 +9,13 @@ from .types import (
     PtType,
     BatchPtType,
     KernelMatrixType,
-    GradLogDensity,
-    BatchGradLogDensity,
+    LogDensityGrad,
+    BatchLogDensityGrad,
     GradKernelMatrixType,
 )
 
 __all__ = [
     "DEFAULT_KERNEL_MATRIX",
-    "DEFAULT_KERNEL_ELEM",
     "sqexp_kernel_matrix",
     "sqexp_kernel_elem",
     "matricize_kernel_elem",
@@ -42,9 +41,6 @@ def sqexp_kernel_matrix(
     )
 
 
-DEFAULT_KERNEL_MATRIX = sqexp_kernel_matrix
-
-
 def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float:
     torch._assert(
         x.shape == y.shape and y.ndim == 1, "Invalid input dimensions of x and y"
@@ -56,6 +52,7 @@ def sqexp_kernel_elem(x: PtType, y: PtType, kernel_length_scale: float) -> Float
 
 
 DEFAULT_KERNEL_ELEM = sqexp_kernel_elem
+DEFAULT_KERNEL_MATRIX = sqexp_kernel_matrix
 
 
 def inverse_multi_quadric_kernel_elem(
@@ -129,8 +126,9 @@ def stein_kernel_diffs_factory(
 
 
 def stein_kernel_mat_factory(
-    grad_log_p: GradLogDensity | BatchGradLogDensity,
+    grad_log_p: LogDensityGrad | BatchLogDensityGrad,
     kernel_fcn: KernelFunction,
+    target_args: Any,
     is_grad_vectorized: bool = False,
     use_compiled: bool = True,
 ) -> MatSelfKernelFunction:
@@ -140,12 +138,12 @@ def stein_kernel_mat_factory(
     def stein_kernel_mat(
         pts: BatchPtType, kernel_length_scale: float, pts2: Optional[BatchPtType] = None
     ) -> KernelMatrixType:
-        grad_log_p_eval1 = grad_log_p_v(pts)
+        grad_log_p_eval1 = grad_log_p_v(pts, target_args)
         if pts2 is None:
             pts2 = pts
             grad_log_p_eval2 = grad_log_p_eval1
         else:
-            grad_log_p_eval2 = grad_log_p_v(pts2)
+            grad_log_p_eval2 = grad_log_p_v(pts2, target_args)
         trace_kernel, grad1_kernel, eval_kernel = kernel_diffs(
             pts, pts2, kernel_length_scale
         )

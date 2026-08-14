@@ -1,12 +1,12 @@
 import torch
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from nak_torch.tools.average import recursive_weighted_average_alpha_v
 from nak_torch.tools.types import (
-    BatchPtType,
     MSIPEstimatorOutput,
     BatchLogDensityGradVal,
     BatchLogDensity,
     BatchQuadratureRule,
+    NAKTarget,
 )
 from jaxtyping import Float
 from torch import Tensor
@@ -14,11 +14,9 @@ from torch import Tensor
 __all__ = ["MSIPFredholm", "MSIPQuadGradientFree", "MSIPQuadGradientInformed"]
 
 
-class MSIPEstimator(ABC):
+class MSIPEstimator(NAKTarget[MSIPEstimatorOutput]):
     @abstractmethod
-    def get_v_evals(
-        self, particles: BatchPtType, kernel_length_scale: float
-    ) -> MSIPEstimatorOutput:
+    def __call__(self, particles, evaluator_args, target_args) -> MSIPEstimatorOutput:
         r"""
         Function that returns estimation of $(\log(v_0), sigma^2 * \nabla \log v_0(y)$
         Note that
@@ -26,7 +24,7 @@ class MSIPEstimator(ABC):
         \sigma^2 \nabla \log v_0(y) = \frac{v_1(y)}{v_0(y)} - y.
         $$
         """
-        pass
+        ...
 
 
 class MSIPFredholm(MSIPEstimator):
@@ -35,16 +33,16 @@ class MSIPFredholm(MSIPEstimator):
     log_dens_grad_val: BatchLogDensityGradVal
 
     def __init__(
-        self, gradient_decay: float, log_dens_grad_val: BatchLogDensityGradVal
+        self, gradient_decay: float, log_dens_grad_val: BatchLogDensityGradVal, **kwargs
     ):
         self.gradient_decay = gradient_decay
         self.log_dens_grad_val = log_dens_grad_val
 
-    def get_v_evals(self, particles, kernel_length_scale):
-        grads, v0 = self.log_dens_grad_val(particles)
-        sigma_sq = kernel_length_scale**2
+    def __call__(self, particles, kernel_lengthscale, target_args):
+        grads, log_v0 = self.log_dens_grad_val(particles, target_args)
+        sigma_sq = kernel_lengthscale * kernel_lengthscale
         sigma_sq_log_v0 = grads.mul_(sigma_sq * self.gradient_decay)
-        return v0, sigma_sq_log_v0
+        return log_v0, sigma_sq_log_v0
 
 
 vmap_recursive_weighted_average_alpha_v = torch.vmap(
@@ -64,16 +62,17 @@ class MSIPQuadGradientFree(MSIPEstimator):
         self.quadrature = quadrature
         self.log_dens = log_dens
 
-    def get_v_evals(self, particles, kernel_length_scale):
+    def __call__(self, particles, kernel_length_scale, target_args):
         n_particles, dim = particles.shape
         quad_pts, quad_wts = self.quadrature(n_particles)
 
         particle_quad_pts = quad_pts.mul_(kernel_length_scale).add(
             particles.reshape(n_particles, 1, -1)
         )
-        log_dens_evals = self.log_dens(particle_quad_pts.reshape(-1, dim)).reshape(
-            n_particles, -1
-        )
+        log_dens_evals = self.log_dens(
+            particle_quad_pts.reshape(-1, dim), target_args
+        ).reshape(n_particles, -1)
+
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
             quad_pts, quad_wts, log_dens_evals
         )
@@ -95,22 +94,26 @@ class MSIPQuadGradientInformed(MSIPEstimator):
         self.quadrature, self.gradient_decay = quadrature, gradient_decay
         self.log_dens_grad_val = log_dens_grad_val
 
-    def get_v_evals(self, particles, kernel_length_scale):
-        quad_pts, quad_wts = self.quadrature(particles.shape[0])
-        sigma_sq = kernel_length_scale**2
-        particle_quad_pts = quad_pts.mul_(kernel_length_scale).add(
+    def __call__(self, particles, kernel_lengthscale, target_args):
+        n_particles, dim = particles.shape
+        quad_pts, quad_wts = self.quadrature(n_particles)
+        sigma_sq = kernel_lengthscale * kernel_lengthscale
+        quad_pts_correct_var = quad_pts.mul(kernel_lengthscale)
+        particle_quad_pts = quad_pts_correct_var.add(
             particles.unsqueeze(1)
         )  # (N_part, N_quad, dim)
+
         log_dens_grads, log_dens_evals = self.log_dens_grad_val(
-            particle_quad_pts.reshape(-1, particles.shape[1])
+            particle_quad_pts.reshape(-1, dim), target_args
         )
 
         log_dens_grads = log_dens_grads.reshape_as(particle_quad_pts)
-        log_dens_evals = log_dens_evals.reshape(particle_quad_pts.shape[:-1])
+        log_dens_evals = log_dens_evals.reshape(n_particles, -1)
 
-        v1_integrand = quad_pts.mul_(1 - self.gradient_decay).add_(
-            log_dens_grads.mul_(self.gradient_decay * sigma_sq)
-        )  # Note that previously multiplied particle_quad_pts by kernel_length_scale
+        v1_integrand_gf = (1 - self.gradient_decay) * quad_pts_correct_var
+        v1_integrand_gi = self.gradient_decay * (sigma_sq * log_dens_grads)
+        v1_integrand = v1_integrand_gf + v1_integrand_gi
+
         sigma_sq_score_v0, log_v0 = vmap_recursive_weighted_average_alpha_v(
             v1_integrand, quad_wts, log_dens_evals
         )
@@ -135,7 +138,7 @@ class MSIPGMMGaussianKernel(MSIPEstimator):
         self.covariances = covariances
         self.bandwidth = bandwidth
 
-    def get_v_evals(self, particles, kernel_length_scale) -> MSIPEstimatorOutput:
+    def __call__(self, particles, kernel_length_scale, _) -> MSIPEstimatorOutput:
         N, D = particles.shape
         dtype, device = particles.dtype, particles.device
         sigma_sq = torch.as_tensor(

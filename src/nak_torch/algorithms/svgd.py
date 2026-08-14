@@ -6,113 +6,128 @@
 # Ayoub Belhadji
 # 05/12/2025
 
-import warnings
-import numpy as np
+from typing import NamedTuple, Optional
 import torch
-from typing import Optional, Callable
-from tqdm import tqdm
-from nak_torch.tools.kernel import sqexp_kernel_elem, kernel_grad_and_value_factory
-from nak_torch.tools.types import KernelFunction, BatchGradLogDensity, BatchPtType
-from nak_torch.tools.util import (
-    batched_grad_log_density_factory,
-    initialize_particles,
-    quantile_distance,
+from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
+from nak_torch.tools.kernel import DEFAULT_KERNEL_ELEM
+from nak_torch.tools.types import (
+    BatchLogDensityGradEvaluator,
+    BatchKernelGradValFunction,
+    DeviceLike,
+    KernelFunction,
+    BatchPtType,
 )
+from nak_torch.tools.util import quantile_distance
+
+__all__ = ["SVGD"]
 
 
-def create_svgd_step(
-    kernel_elem: KernelFunction, grad_log_p: BatchGradLogDensity
-) -> Callable[[BatchPtType, float], BatchPtType]:
+def create_svgd_kernel_grad_val(
+    kernel_elem: KernelFunction,
+) -> BatchKernelGradValFunction:
     which_argnum = 1
-    kernel_grad_val = kernel_grad_and_value_factory(
-        kernel_elem,
-        which_argnum,
+    kernel_grad_val = torch.func.grad_and_value(kernel_elem, argnums=which_argnum)
+    kernel_grad_val_vec = torch.vmap(
+        torch.vmap(kernel_grad_val, in_dims=(None, 0, None)), in_dims=(0, None, None)
     )
-
-    def svgd_step_dir(points: BatchPtType, kernel_lengthscale: float):
-        # ASSUME SYMMETRY OF KERNEL
-        # kg[i,j,ell] = grad(x_j[ell]) k(x_i, x_j), k[i,j] = k(x_i, x_j)
-        k_grad, k_eval = kernel_grad_val(points, points, kernel_lengthscale)
-        # lpg[j,ell] = grad(x_j[ell]) log_p(x_j)
-        log_p_grad_ev = grad_log_p(points)
-        # term_1[i, ell] = sum_j k(i, j) grad(x_j[ell]) log_p(x_j)
-        term_1 = k_eval @ log_p_grad_ev
-        # term_2[i, ell] = sum_j grad(x_j[ell]) k(x_i, x_j)
-        term_2 = k_grad.sum(1)
-        return (term_1 + term_2) / points.shape[0]
-
-    return svgd_step_dir
+    return kernel_grad_val_vec
 
 
-def svgd(
-    log_density,
-    n_particles: int,
-    n_steps: int,
-    dim: int,
-    lr: float,
-    seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
-    init_particles: Optional[torch.Tensor | np.ndarray] = None,
-    kernel_length_scale: float = 1.0,
-    kernel_elem: KernelFunction = sqexp_kernel_elem,
-    bounds: Optional[tuple[float, float]] = None,
-    keep_all: bool = True,
-    is_log_density_batched: bool = False,
-    use_quantile_length_scale: Optional[float] = None,
-    grad_log_density: Optional[BatchGradLogDensity] = None,
-    verbose: bool = False,
-    fudge_factor: float = 1e-6,
-    grad_decay_factor: float = 0.9,
-    **unused_kwargs,
+def svgd_step(
+    kernel_grad_val: BatchKernelGradValFunction,
+    points: BatchPtType,
+    grad_log_dens: BatchPtType,
+    kernel_elem_args,
+) -> BatchPtType:
+    k_grad, k_eval = kernel_grad_val(points, points, kernel_elem_args)
+    # lpg[j,ell] = grad(x_j[ell]) log_p(x_j)
+    log_p_grad_ev = grad_log_dens
+    # term_1[i, ell] = sum_j k(i, j) grad(x_j[ell]) log_p(x_j)
+    term_1: BatchPtType = k_eval @ log_p_grad_ev
+    # term_2[i, ell] = sum_j grad(x_j[ell]) k(x_i, x_j)
+    term_2: BatchPtType = k_grad.sum(1)
+    return (term_1 + term_2) / points.shape[0]
+
+
+class SVGDAlgorithmArgs(NamedTuple):
+    kernel_lengthscale: float
+    historical_grad: BatchPtType
+
+
+class SVGD(
+    UnweightedAdaptiveNAKAlgorithm[BatchLogDensityGradEvaluator, SVGDAlgorithmArgs]
 ):
-    if verbose and len(unused_kwargs) > 0:
-        warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
+    default_kernel_lengthscale: float
+    kernel_lengthscale_quantile: Optional[float]
+    kernel_grad_val: BatchKernelGradValFunction
+    gradient_decay_factor: float
+    fudge_factor: float
 
-    if seed is not None:
-        torch.manual_seed(seed)
+    def get_adaptive_lengthscale(self, particles: BatchPtType) -> float:
+        q = self.kernel_lengthscale_quantile
+        if q is None:
+            return self.default_kernel_lengthscale
+        return quantile_distance(particles, q)
 
-    if use_quantile_length_scale is not None and (
-        use_quantile_length_scale > 1.0 or use_quantile_length_scale < 0.0
+    def __init__(
+        self,
+        dim: int,
+        n_particles: int,
+        device: Optional[DeviceLike] = None,
+        dtype: Optional[torch.dtype] = None,
+        *_,
+        kernel_lengthscale: Optional[float] = None,
+        kernel_lengthscale_quantile: Optional[float] = None,
+        kernel_elem: Optional[KernelFunction] = None,
+        gradient_decay_factor: float = 0.9,
+        fudge_factor: float = 1e-6,
+        **kwargs,
     ):
-        raise ValueError(
-            f"Expected use_quantile_length_scale in [0,1], got {use_quantile_length_scale}"
-        )
-
-    particles = initialize_particles(n_particles, dim, init_particles, device, bounds)
-
-    if keep_all:
-        trajectories = torch.empty(
-            (n_steps + 1, *particles.shape), device=device, dtype=particles.dtype
-        )
-        trajectories[0].copy_(particles)
-    else:
-        trajectories = torch.empty(())
-
-    grad_log_p = batched_grad_log_density_factory(
-        log_density, is_log_density_batched, grad_log_density
-    )
-    step_fcn = create_svgd_step(kernel_elem, grad_log_p)
-
-    historical_grad: Optional[BatchPtType] = None
-
-    for idx in tqdm(range(n_steps), disable=not verbose):
-        if use_quantile_length_scale is not None:
-            kernel_length_scale = quantile_distance(
-                particles, use_quantile_length_scale
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
+        if kernel_lengthscale is None and kernel_lengthscale_quantile is None:
+            raise ValueError(
+                "Must provide either kernel_lengthscale or kernel_lengthscale_quantile"
             )
+        if kernel_lengthscale_quantile is not None and (
+            kernel_lengthscale_quantile < 0 or kernel_lengthscale_quantile > 1
+        ):
+            raise ValueError(
+                f"Expected kernel_lengthscale_quantile in [0,1], given {kernel_lengthscale_quantile}"
+            )
+        if kernel_elem is None:
+            kernel_elem = DEFAULT_KERNEL_ELEM
+        self.default_kernel_lengthscale = (
+            0.0 if kernel_lengthscale is None else kernel_lengthscale
+        )
+        self.kernel_lengthscale_quantile = kernel_lengthscale_quantile
+        self.kernel_grad_val = create_svgd_kernel_grad_val(kernel_elem)
+        self.gradient_decay_factor = gradient_decay_factor
+        self.fudge_factor = fudge_factor
 
-        particles_diff = step_fcn(particles, kernel_length_scale)
-        if historical_grad is None:
-            historical_grad = particles_diff.square()
-        else:
-            decay_add = particles_diff.square().mul_(1 - grad_decay_factor)
-            historical_grad = historical_grad.mul_(grad_decay_factor).add_(decay_add)
-        particles_diff = particles_diff.div_(historical_grad.sqrt().add_(fudge_factor))
-        with torch.no_grad():
-            particles = particles + lr * particles_diff
-            if bounds is not None:
-                particles.clamp_(bounds[0], bounds[1])
-        if keep_all:
-            trajectories[idx + 1].copy_(particles)
+    def initialize(self, init_particles, target, target_args):
+        kernel_lengthscale = self.get_adaptive_lengthscale(init_particles)
+        grad_log_dens_eval = target(init_particles, target_args)
+        particles_diff = svgd_step(
+            self.kernel_grad_val, init_particles, grad_log_dens_eval, kernel_lengthscale
+        )
+        historical_grad = particles_diff.square()
+        return None, SVGDAlgorithmArgs(kernel_lengthscale, historical_grad)
 
-    return trajectories.detach() if keep_all else particles.unsqueeze_(0)
+    def step(self, lr, particles, target, algorithm_args, target_args):
+        kernel_lengthscale: float
+        historical_grad: BatchPtType
+        kernel_lengthscale, historical_grad = algorithm_args  # type: ignore
+        grad_log_dens_eval = target(particles, target_args)
+        particles_diff = svgd_step(
+            self.kernel_grad_val, particles, grad_log_dens_eval, kernel_lengthscale
+        )
+        alpha = self.gradient_decay_factor
+        historical_grad = alpha * historical_grad + (1 - alpha) * (particles_diff**2)
+        adj_grad = particles_diff.divide_(self.fudge_factor + historical_grad.sqrt())
+        new_particles = adj_grad.mul_(lr).add_(particles)
+        new_kernel_lengthscale = self.get_adaptive_lengthscale(new_particles)
+        return (
+            new_particles,
+            None,
+            SVGDAlgorithmArgs(new_kernel_lengthscale, historical_grad),
+        )

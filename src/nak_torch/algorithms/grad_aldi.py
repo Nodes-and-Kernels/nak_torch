@@ -1,14 +1,16 @@
 import torch
 from typing import Optional
-from nak_torch.tools.types import BatchGradLogDensity, BatchPtType
-import warnings
-from tqdm import tqdm
-import numpy as np
+from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
+from nak_torch.tools.types import (
+    BatchLogDensityGradEvaluator,
+    BatchPtType,
+    DeviceLike,
+)
 from nak_torch.tools.util import (
-    batched_grad_log_density_factory,
-    initialize_particles,
     sym_sqrtm,
 )
+
+__all__ = ["GradALDI"]
 
 
 def grad_aldi_step(
@@ -29,71 +31,46 @@ def grad_aldi_step(
     particles_sqrt_cov = sym_sqrtm(2 * particles_cov)
     # sqrt(2) comes from noise
     particles_noise_iid = torch.normal(
-        0.0, 1.0, size=particles.shape, generator=rng, device=particles.device
+        0.0,
+        1.0,
+        size=particles.shape,
+        generator=rng,
+        dtype=particles.dtype,
+        device=particles.device,
     )
     particles_noise = particles_noise_iid @ particles_sqrt_cov
     drift_term = term1.add_(term2)
     return drift_term, particles_noise
 
 
-def grad_aldi(
-    log_density,
-    n_particles: int,
-    n_steps: int,
-    dim: int,
-    lr: float,
-    seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
-    init_particles: Optional[torch.Tensor | np.ndarray] = None,
-    bounds: Optional[tuple[float, float]] = None,
-    rng: Optional[torch.Generator] = None,
-    keep_all: bool = True,
-    is_log_density_batched: bool = False,
-    grad_log_density: Optional[BatchGradLogDensity] = None,
-    verbose: bool = False,
-    compile_step: bool = True,
-    **unused_kwargs,
-):
-    if verbose and len(unused_kwargs) > 0:
-        warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
+class GradALDI(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityGradEvaluator, None]):
+    rng: torch.Generator
 
-    if rng is None:
-        rng = torch.default_generator
-    if seed is not None:
-        rng.manual_seed(seed)
+    def _sqrt(self, x: float):
+        return torch.sqrt_(torch.as_tensor(x, device=self.device, dtype=self.dtype))
 
-    grad_log_p = batched_grad_log_density_factory(
-        log_density, is_log_density_batched, grad_log_density
-    )
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds, rng
-    )
+    def __init__(
+        self,
+        dim: int,
+        n_particles: int,
+        device: Optional[DeviceLike] = None,
+        dtype: Optional[torch.dtype] = None,
+        *_,
+        rng: torch.Generator,
+        **kwargs,
+    ):
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
+        self.rng = rng
 
-    if keep_all:
-        trajectories = torch.empty(
-            (n_steps, *particles.shape), device=device, dtype=particles.dtype
+    def initialize(self, init_particles, target, target_args):
+        return None, None
+
+    def step(self, lr, particles, target, algorithm_args, target_args):
+        grad_log_dens_evals = target(particles, target_args)
+        particles_diff, particles_noise = grad_aldi_step(
+            particles, grad_log_dens_evals, self.rng
         )
-        trajectories[0].copy_(particles)
-    else:
-        trajectories = torch.empty(())
-
-    sqrt_lr = torch.sqrt(torch.tensor(lr))
-    g_aldi_step = grad_aldi_step
-    if compile_step:
-        g_aldi_step = torch.compile(g_aldi_step)
-
-    for idx in tqdm(range(n_steps), disable=not verbose):
-        grad_log_dens_eval = grad_log_p(particles)
-        with torch.no_grad():
-            particles_diff, particles_noise = g_aldi_step(
-                particles, grad_log_dens_eval, rng
-            )
-            particles_diff.mul_(lr)
-            particles_noise.mul_(sqrt_lr)
-            particles.add_(particles_diff).add_(particles_noise)
-            if bounds is not None:
-                particles.clamp_(bounds[0], bounds[1])
-        if keep_all:
-            trajectories[idx].copy_(particles)
-
-    return trajectories.detach() if keep_all else particles.unsqueeze_(0)
+        particles_diff.mul_(lr)
+        particles_noise.mul_(self._sqrt(lr))
+        new_particles = particles_diff.add_(particles).add_(particles_noise)
+        return new_particles, None, None

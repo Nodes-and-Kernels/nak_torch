@@ -7,7 +7,6 @@ def recursive_weighted_average_alpha_v(
     y: Float[Tensor, "batch dim"],
     alpha: Float[Tensor, " batch"],
     log_v: Float[Tensor, " batch"],
-    eps: float = 1e-18,
 ) -> tuple[Float[Tensor, "batch dim"], Float[Tensor, " batch"]]:
     r"""
     Compute a stable weighted average
@@ -21,13 +20,12 @@ def recursive_weighted_average_alpha_v(
     z: (d,) see above
     w: (1,) defined by $log(\sum_i v_i a_i)$
     """
-    N, d = y.shape
+    N = y.shape[0]
     if alpha.ndim != 1 or N != alpha.shape[0]:
         raise ValueError(f"Invalid alpha dimensions {alpha.shape}")
 
     y = torch.as_tensor(y)
     alpha = torch.as_tensor(alpha)
-    N, d = y.shape
 
     # Compute log |w_i|:= log |a_i| + log |v_i|  and sign of the a_i
     log_abs_alpha = torch.log(alpha.abs())
@@ -43,9 +41,6 @@ def recursive_weighted_average_alpha_v(
     # Calculate the denominator
     weighted_signs = sign * exp_scaled
     denominator = weighted_signs.sum()
-
-    # if denominator.abs() < eps:
-    #     raise ValueError("Sum of weights too close to zero.")
 
     # Calculate the numerator
     numerator = weighted_signs @ y

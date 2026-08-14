@@ -12,7 +12,7 @@ import torch
 
 
 def himmelblau(T):
-    def himmelblau_aux(x):
+    def himmelblau_aux(x, _ = None):
         x1, x2 = x[...,0], x[...,1]
         t1 = torch.square(torch.square(x1)+x2-11)
         t2 = torch.square(x1 + torch.square(x2)-7)

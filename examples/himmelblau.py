@@ -2,16 +2,16 @@
 import torch
 import matplotlib.pyplot as plt
 import nak_torch
+from nak_torch.tools.types import BatchLogDensityGradEvaluator
 from viz_tools import animate_trajectories_box
 from functions import himmelblau
-from nak_torch.algorithms import msip, svgd
+from nak_torch import nak
+from nak_torch.algorithms import MSIP, SVGD
 from nak_torch.algorithms.msip import MSIPFredholm, MSIPQuadGradientFree
-from nak_torch.tools.quadrature import spherical_MC_radial_Laguerre
+from nak_torch.tools.quadrature import gauss_MC, spherical_MC_radial_Laguerre
 from datetime import datetime
-from nak_torch.tools.kernel import kernel_optimal_weight_factory, DEFAULT_KERNEL_MATRIX
 
 save_gif = False
-algorithm_name = "msip_ni"
 function_name = "himmelblau"
 log_density = himmelblau(50.0)
 
@@ -23,28 +23,33 @@ torch.set_default_dtype(torch.float64)
 torch.manual_seed(19230182)
 init_particles = torch.randn((n_particles, 2)) + 8.0
 params = {
-    "bounds": (-15, 15),
-    "kernel_length_scale": 0.2,
+    "n_steps": 100,
+    "bounds": (-10, 10),
+    "kernel_lengthscale": 0.2,
     "init_particles": init_particles,
     "n_particles": n_particles,
     "dim": 2,
-    "lr": 0.8,
+    "lr": 0.6,
     "kernel_diag_infl": 1e-5,
+    "verbose": False
 }
 
 # %%
-estimator_fredholm = MSIPFredholm(
-    gradient_decay=0.95,
-    log_dens_grad_val=torch.vmap(torch.func.grad_and_value(log_density))
+msip = MSIP(**params)
+svgd = SVGD(kernel_lengthscale_quantile=0.5, **params)
+
+# %%
+target_msip_fr = MSIPFredholm(
+    gradient_decay=1.0,
+    log_dens_grad_val=torch.vmap(
+        torch.func.grad_and_value(log_density),
+        in_dims=(0,None)
+    )
 )
 
-trajectories_fr, trajectories_wts_fr = msip(
-    estimator_fredholm,
-    n_steps=200,
-    use_quantile_length_scale=0.0,
-    **params
-)
+trajectories_fr, trajectories_wts_fr = nak(target_msip_fr, msip, **params)
 
+# %%
 Ngrid = 1000
 x = y = torch.linspace(-5, 5, Ngrid)
 X,Y = torch.meshgrid(x,y,indexing="ij")
@@ -62,15 +67,11 @@ s = plt.scatter(
 
 plt.show()
 
+# %%
+target_svgd = BatchLogDensityGradEvaluator(log_density, is_grad=False, is_batched=False)
+trajectories_svgd = nak(target_svgd, svgd, **params)
 
 # %%
-trajectories_svgd = svgd(
-    log_density,
-    n_steps=100,
-    use_quantile_length_scale=0.5,
-    **params
-)
-
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 pts_svgd = trajectories_svgd[-1]
 s = plt.scatter(
@@ -83,32 +84,32 @@ plt.show()
 
 
 # %%
-estimator = MSIPQuadGradientFree(
+target_msip_gf = MSIPQuadGradientFree(
     log_density,
-    lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
+    # lambda b: spherical_MC_radial_Laguerre(b, N_spherical=5, d=2, N_radial=2)
+    lambda b: gauss_MC(b, 5, 2, torch.default_generator)
 )
 params_gf = params.copy()
-params_gf['lr'] = 0.5
+params_gf['lr'] = 0.85
+params_gf['n_steps'] = 100
 n_particles = 25
-trajectories_gf,w = msip(
-    estimator,
-    n_steps=500,
-    seed=1,
-    use_quantile_length_scale=0.0,
-    **params_gf
-)
+rng = torch.Generator()
+rng.manual_seed(12321)
+trajectories_pts_gf,trajectories_wts_gf = nak(target_msip_gf, msip, **params_gf)
 
-pts_gf = trajectories_gf[-1]
-wts_gf = kernel_optimal_weight_factory(pts_gf, log_density(pts_gf), DEFAULT_KERNEL_MATRIX(pts_gf, params["kernel_length_scale"]))
+pts_gf = trajectories_pts_gf[-1]
+wts_gf = trajectories_wts_gf[-1]
 plt.contourf(X,Y,Z, levels=20, cmap="Grays")
 plt.scatter(pts_gf[:,0], pts_gf[:,1], c=wts_gf)
 plt.show()
 
 # %%
 batch_log_dens = torch.vmap(log_density)
-batch_grad_log_dens = torch.vmap(torch.func.grad(log_density))
-def ksd_kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
+batch_grad_log_dens = torch.vmap(torch.func.grad(log_density), in_dims=(0,None))
+def kernel_elem(x: torch.Tensor, y: torch.Tensor, sigma: float):
     return torch.reciprocal(1 + (x - y).div(sigma).square().sum())
+ksd_eval = nak_torch.metrics.KernelSteinDiscrepancy(batch_grad_log_dens, 0.25, kernel_elem=kernel_elem)
+print("KSD", ksd_eval(pts_fr, wts_fr).item(), ksd_eval(pts_svgd).item(), ksd_eval(pts_gf, wts_gf).item())
 
 ksd_lengthscale = 0.25
 
@@ -142,12 +143,12 @@ extrema_pts = [(pt.min(), pt.max()) for pt in pt_list]
 g_min, g_max = [m(x[i] for x in extrema_pts) for (m,i) in [(min,0), (max,1)]]
 extrema_wts = [(w.min(), w.max()) for w in wt_list if w is not None]
 vmin, vmax = [m(x[i] for x in extrema_wts) for (m,i) in [(min,0), (max,1)]]
-titles = ["Initialization", "SVGD", "MSIP-1", "MSIP-GF"]
+titles = ["Initialization", "SVGD", "MSIP-F", "MSIP-GF"]
 title_weights = [None, None, 'heavy', 'heavy']
 for (ax, title, pt, wt, title_wt) in zip(axs, titles, pt_list, wt_list, title_weights):
     ax.set_axis_off()
-    ax.set_xlim(g_min, g_max)
-    ax.set_ylim(g_min, 1.05*g_max)
+    # ax.set_xlim(g_min, g_max)
+    # ax.set_ylim(g_min, 1.05*g_max)
     ax.set_title(title, fontweight=title_wt, size=20)
     ax.contourf(X[:,40:],Y[:,40:],Z[:,40:], levels=20, cmap="Grays")
     s = 25 * (1. if wt is None else ((wt.abs()/wt.abs().max())).sqrt())

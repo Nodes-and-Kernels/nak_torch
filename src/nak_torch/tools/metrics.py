@@ -1,6 +1,7 @@
 import os
 from typing import Callable, Optional
 from abc import ABC, abstractmethod
+import pickle
 from warnings import warn
 from jaxtyping import Float
 
@@ -8,12 +9,12 @@ import torch
 from torch import Tensor
 import pickle
 from .types import (
-    BatchGradLogDensity,
+    BatchLogDensityGrad,
     BatchLogDensityGradVal,
     BatchType,
     BatchPtType,
     BatchLogDensity,
-    GradLogDensity,
+    LogDensityGrad,
     KernelFunction,
     KernelMatrixType,
     LogDensity,
@@ -22,7 +23,12 @@ from .types import (
     PtType,
 )
 
-from .kernel import DEFAULT_KERNEL_ELEM, matricize_kernel_elem, stein_kernel_mat_factory
+from .kernel import (
+    DEFAULT_KERNEL_ELEM,
+    matricize_kernel_elem,
+    sqexp_kernel_elem,
+    stein_kernel_mat_factory,
+)
 
 __all__ = ["CrossEntropy", "KernelSteinDiscrepancy", "RelativeESS"]
 
@@ -49,7 +55,7 @@ class GradFreeMetric(Metric):
         is_log_dens_grad_val: bool = False,
     ):
         log_dens_val = (
-            log_dens if not is_log_dens_grad_val else lambda x: log_dens(x)[1]
+            log_dens if not is_log_dens_grad_val else lambda x, a: log_dens(x, a)[1]
         )
         self.log_dens = log_dens_val
         self.is_log_dens_vectorized = is_log_dens_vectorized
@@ -60,12 +66,12 @@ class CrossEntropy(GradFreeMetric):
     Given target $\pi$ and particle approximation $\mu$, estimate $D_{KL}(\mu || \pi)$.
     """
 
-    def __call__(self, pts, wts=None):
+    def __call__(self, pts, wts=None, target_args=None):
         N = pts.shape[0]
         N_tens = torch.as_tensor(N, device=pts.device, dtype=pts.dtype)
         cross_entropy: Float
         if self.is_log_dens_vectorized:
-            log_dens_evals = self.log_dens(pts)
+            log_dens_evals = self.log_dens(pts, target_args)
             if wts is None:
                 cross_entropy = -log_dens_evals.mean()
             else:
@@ -73,7 +79,7 @@ class CrossEntropy(GradFreeMetric):
         else:
             cross_entropy = torch.zeros_like(N_tens)
             for idx in range(pts.shape[0]):
-                cross_entropy_eval = self.log_dens(pts[idx])
+                cross_entropy_eval = self.log_dens(pts[idx], target_args)
                 if wts is None:
                     cross_entropy_eval /= N_tens
                 else:
@@ -88,17 +94,17 @@ class ExclusiveKullbackLeibler(GradFreeMetric):
     DO NOT USE. MATHEMATICALLY INCORRECT.
     """
 
-    def __call__(self, pts, wts=None):
+    def __call__(self, pts, wts=None, target_args=None):
         warn("Exclusive Kullback Leibler is not mathematically correct.")
         N = pts.shape[0]
         N_tens = torch.as_tensor(N, device=pts.device, dtype=pts.dtype)
         log_dens_evals: Tensor
         if self.is_log_dens_vectorized:
-            log_dens_evals = self.log_dens(pts)
+            log_dens_evals = self.log_dens(pts, target_args)
         else:
             log_dens_evals = torch.zeros(N, device=pts.device, dtype=pts.dtype)
             for idx in range(pts.shape[0]):
-                log_dens_evals[idx] = self.log_dens(pts[idx])
+                log_dens_evals[idx] = self.log_dens(pts[idx], target_args)
         kl: Float
         if wts is None:
             log_ratios = log_dens_evals - N_tens.log()
@@ -116,15 +122,15 @@ class RelativeESS(GradFreeMetric):
     $$rESS(Y,w; \pi) = \frac{1}{\sum_i v_i^2},  v_i = \frac{w_i \pi(y_i)}{\sum_j w_j \pi(y_j)}$.$
     """
 
-    def __call__(self, pts, wts=None):
+    def __call__(self, pts, wts=None, target_args=None):
         evals: torch.Tensor
         N = pts.shape[0]
         if self.is_log_dens_vectorized:
-            evals = self.log_dens(pts)
+            evals = self.log_dens(pts, target_args)
         else:
             evals = torch.zeros(N, device=pts.device, dtype=pts.dtype)
             for idx in range(N):
-                evals[idx] = self.log_dens(pts[idx])
+                evals[idx] = self.log_dens(pts[idx], target_args)
 
         log_weights = evals
         if wts is not None:
@@ -135,7 +141,7 @@ class RelativeESS(GradFreeMetric):
         return torch.logsumexp(2 * log_norm_wts, dim=0).neg_().exp_().div_(N)
 
 
-AnyLogDensGrad = GradLogDensity | BatchGradLogDensity
+AnyLogDensGrad = LogDensityGrad | BatchLogDensityGrad
 
 
 class KernelSteinDiscrepancy(Metric):
@@ -148,7 +154,8 @@ class KernelSteinDiscrepancy(Metric):
         self,
         grad_log_dens: AnyLogDensGrad,
         kernel_length_scale: float,
-        kernel_elem: Optional[KernelFunction] = None,
+        target_args=None,
+        kernel_elem=None,
         is_grad_vectorized: bool = True,
         use_compiled: bool = False,
     ):
@@ -158,6 +165,7 @@ class KernelSteinDiscrepancy(Metric):
         self.stein_kernel_mat = stein_kernel_mat_factory(
             grad_log_dens,
             kernel_elem,
+            target_args=target_args,
             is_grad_vectorized=is_grad_vectorized,
             use_compiled=use_compiled,
         )

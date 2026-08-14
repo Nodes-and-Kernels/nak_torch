@@ -21,10 +21,10 @@ def calculate_msip_map(
 ) -> BatchPtType:
 
     term_v0, _ = recursive_weighted_average_alpha_v(
-        particles, K_minus_one_i, log_v=eval_log_v0
+        particles, K_minus_one_i, eval_log_v0
     )
     term_v1, _ = recursive_weighted_average_alpha_v(
-        sigma_sq_grad_log_v0, K_minus_one_i, log_v=eval_log_v0
+        sigma_sq_grad_log_v0, K_minus_one_i, eval_log_v0
     )
     return term_v0 + term_v1
 
@@ -41,11 +41,25 @@ def get_msip_wts(
     return kernel_optimal_weight_factory(particles, log_v0, kernel_matrix)
 
 
-def msip_map(
+def msip_map_one_output(
     estimators: MSIPEstimatorOutput,
     particles: torch.Tensor,
     kernel_matrix_inverse: KernelMatrixType,
     output_idx: Optional[int],
+) -> BatchPtType:
+    particles = particles.clone()
+    with torch.no_grad():
+        return calculate_msip_map(
+            kernel_matrix_inverse[output_idx],
+            particles,
+            *estimators,
+        )
+
+
+def msip_map_all_output(
+    estimators: MSIPEstimatorOutput,
+    particles: torch.Tensor,
+    kernel_matrix_inverse: KernelMatrixType,
 ) -> PtType | BatchPtType:
     """
     Compute the full MSIP map T(y) for all particles at once.
@@ -54,13 +68,4 @@ def msip_map(
     particles = particles.clone()
 
     with torch.no_grad():
-        N, d = particles.shape
-
-        if output_idx is None:
-            return calculate_msip_map_all(kernel_matrix_inverse, particles, *estimators)
-        else:
-            return calculate_msip_map(
-                kernel_matrix_inverse[output_idx],
-                particles,
-                *estimators,
-            )
+        return calculate_msip_map_all(kernel_matrix_inverse, particles, *estimators)

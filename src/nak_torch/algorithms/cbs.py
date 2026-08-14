@@ -1,10 +1,17 @@
+from dataclasses import astuple, dataclass
+
 import torch
 from typing import Optional
-from nak_torch.tools.types import BatchType, BatchPtType
-import warnings
-from tqdm import tqdm
-import numpy as np
-from nak_torch.tools.util import initialize_particles, sym_sqrtm
+from nak_torch.tools.func import UnweightedAdaptiveNAKAlgorithm
+from nak_torch.tools.types import (
+    BatchLogDensityEvaluator,
+    BatchType,
+    BatchPtType,
+    DeviceLike,
+)
+from nak_torch.tools.util import sym_sqrtm
+
+__all__ = ["CBS"]
 
 
 def cbs_step(
@@ -22,67 +29,57 @@ def cbs_step(
     drift_term = particles_diff.neg_()
     noise_sqrt_cov = sym_sqrtm(particles_cov.mul_(motion_scaling_sq))
     motion_term = (
-        torch.normal(0.0, 1.0, particles.shape, generator=rng, device=rng.device)
+        torch.normal(
+            0.0,
+            1.0,
+            particles.shape,
+            generator=rng,
+            dtype=particles.dtype,
+            device=rng.device,
+        )
         @ noise_sqrt_cov
     )
     return drift_term, motion_term
 
 
-def cbs(
-    log_density,
-    n_particles: int,
-    n_steps: int,
-    dim: int,
-    lr: float,
-    inverse_temp: float,
-    seed: Optional[int] = None,
-    device: Optional[torch.device] = None,
-    init_particles: Optional[torch.Tensor | np.ndarray] = None,
-    bounds: Optional[tuple[float, float]] = None,
-    rng: Optional[torch.Generator] = None,
-    keep_all: bool = True,
-    is_log_density_batched: bool = False,
-    verbose: bool = False,
-    compile_step: bool = True,
-    **unused_kwargs,
-):
-    if verbose and len(unused_kwargs) > 0:
-        warnings.warn("Unused kwargs:\n{}".format(unused_kwargs))
+@dataclass
+class CBSAlgorithmArgs:
+    inverse_temp: float
+    motion_scaling_sq_div_lr: float
 
-    if rng is None:
-        rng = torch.default_generator
-    if seed is not None:
-        rng.manual_seed(seed)
 
-    particles = initialize_particles(
-        n_particles, dim, init_particles, device, bounds, rng
-    )
+class CBS(UnweightedAdaptiveNAKAlgorithm[BatchLogDensityEvaluator, CBSAlgorithmArgs]):
+    default_inverse_temp: float
+    rng: torch.Generator
 
-    if keep_all:
-        trajectories = torch.empty(
-            (n_steps, *particles.shape), device=device, dtype=particles.dtype
+    def __init__(
+        self,
+        dim: int,
+        n_particles: int,
+        device: Optional[DeviceLike] = None,
+        dtype: Optional[torch.dtype] = None,
+        *_,
+        default_inverse_temp: float,
+        rng: torch.Generator,
+        **kwargs,
+    ):
+        super().__init__(dim, n_particles, device, dtype, **kwargs)
+        self.default_inverse_temp = default_inverse_temp
+        self.rng = rng
+
+    def initialize(self, init_particles, target, target_args):
+        inverse_temp = self.default_inverse_temp
+        motion_scaling_sq_div_lr = 2 * (1 + inverse_temp)
+        alg_args = CBSAlgorithmArgs(inverse_temp, motion_scaling_sq_div_lr)
+        return None, alg_args
+
+    def step(self, lr, particles, target, algorithm_args, target_args):
+        inverse_temp, motion_scaling_sq_div_lr = astuple(algorithm_args)
+        motion_scaling_sq = motion_scaling_sq_div_lr * lr
+        log_dens_eval = target(particles, target_args)
+        particles_diff, particles_noise = cbs_step(
+            particles, log_dens_eval, inverse_temp, motion_scaling_sq, self.rng
         )
-        trajectories[0].copy_(particles)
-    else:
-        trajectories = torch.empty(())
-    _cbs_step = cbs_step
-    if compile_step:
-        _cbs_step = torch.compile(cbs_step)
-
-    log_p = log_density if is_log_density_batched else torch.vmap(log_density)
-    motion_scaling_sq = lr * 2 * (1 + inverse_temp)
-
-    for idx in tqdm(range(n_steps), disable=not verbose):
-        log_dens_eval = log_p(particles)
-        with torch.no_grad():
-            particles_diff, particles_noise = _cbs_step(
-                particles, log_dens_eval, inverse_temp, motion_scaling_sq, rng
-            )
-            particles_diff.mul_(lr)
-            particles = particles.add_(particles_diff).add_(particles_noise)
-            if bounds is not None:
-                particles.clamp_(bounds[0], bounds[1])
-        if keep_all:
-            trajectories[idx].copy_(particles)
-
-    return trajectories.detach() if keep_all else particles.unsqueeze_(0)
+        particles_diff.mul_(lr)
+        new_particles = particles_diff.add_(particles).add_(particles_noise)
+        return new_particles, None, algorithm_args

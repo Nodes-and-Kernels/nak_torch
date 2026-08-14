@@ -15,7 +15,7 @@ class FunnelData:
         return f"dim: {self.dim}, x1_var: {self.x1_var}"
 
 
-def funnel_logpdf_full(data: FunnelData, x: Tensor):
+def funnel_logpdf_full(data: FunnelData, x: Tensor, _ = None):
     x1 = x[...,0]
     x2_end = x[...,1:]
     logpdf_x1 = x1.square().div_(data.x1_var).add_(np.log(2 * np.pi * data.x1_var))
@@ -23,7 +23,7 @@ def funnel_logpdf_full(data: FunnelData, x: Tensor):
     logpdf_x2_end = x2_end.square().sum(-1).divide_(exp_x1).add_(np.log(2 * np.pi)).add_((data.dim - 1) * x1)
     return -0.5 * (logpdf_x1 + logpdf_x2_end)
 
-def logpdf_factory(dim: int, **funnel_kwargs) -> Callable[[Tensor], Tensor]:
+def logpdf_factory(dim: int, **funnel_kwargs):
     if dim < 2:
         raise ValueError(f"Expected parameter dim > 1. Got {dim}")
     return partial(funnel_logpdf_full, FunnelData(dim, **funnel_kwargs))
@@ -45,6 +45,7 @@ if __name__ == '__main__':
     x = y = torch.linspace(-3, 3, N_plt)
     X,Y = torch.meshgrid(x, y, indexing='ij')
     grid = torch.column_stack((X.flatten(), Y.flatten()))
+    logpdf = logpdf_factory(dim = 2)
     out_like = logpdf(grid).reshape(N_plt, N_plt)
     sig_pr = 2
     out_pr = -(X**2 + Y**2) / (2*sig_pr**2)
@@ -52,5 +53,6 @@ if __name__ == '__main__':
     plt.contourf(X, Y, out.exp(), levels=20)
     plt.gca().set_aspect(1.0)
     plt.show()
-    samps = sample(torch.default_generator, 10000)
+    sampler = sample_factory(dim = 2)
+    samps = sampler(torch.default_generator, 10000)
     print(samps.T.cov())

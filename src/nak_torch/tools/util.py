@@ -1,18 +1,22 @@
 import torch
 from torch import Tensor
 from jaxtyping import Float
-from typing import Optional, Callable
-from .types import BatchGradLogDensity, BatchPtType
+from typing import Iterable, Optional, Callable, TypeVar
+from .types import BatchLogDensityGrad, BatchPtType, DeviceLike
 import numpy as np
 import inspect
+
+__all__ = ["sym_sqrtm", "quantile_distance", "infinite_iter"]
 
 
 def sym_sqrtm(A: Float[Tensor, "n n"], use_inv: bool = False):
     e, v = torch.linalg.eigh(A)
     if use_inv:
-        return torch.einsum("ij,j,kj->ik", v, torch.reciprocal_(e.sqrt_()), v)
+        return torch.einsum("ij,j,kj->ik", v, torch.reciprocal_(e.sqrt_()), v).to(
+            dtype=A.dtype
+        )
     else:
-        return torch.einsum("ij,j,kj->ik", v, e.sqrt_(), v)
+        return torch.einsum("ij,j,kj->ik", v, e.sqrt_(), v).to(dtype=A.dtype)
 
 
 def get_keywords(fcn: Callable):
@@ -24,14 +28,20 @@ def initialize_particles(
     n_particles: int,
     dim: int,
     init_particles: Optional[Tensor | np.ndarray],
-    device: Optional[torch.device],
+    device: Optional[DeviceLike],
+    dtype: Optional[torch.dtype],
     bounds: Optional[tuple[float, float]],
     rng: Optional[torch.Generator] = None,
 ) -> BatchPtType:
-    rng = torch.default_generator
+    if device is None:
+        device = torch.get_default_device()
+    elif not isinstance(device, torch.device):
+        device = torch.device(device)
+    if rng is not None and rng.device != device:
+        raise ValueError(f"Expected rng to be on device {device}. Got {rng.device}")
     if init_particles is None:
         if bounds is None:
-            return torch.randn((n_particles, dim), device=device)
+            return torch.randn((n_particles, dim), device=device, generator=rng)
         else:
             return torch.empty((n_particles, dim), device=device).uniform_(
                 *bounds, generator=rng
@@ -48,6 +58,12 @@ def initialize_particles(
                 init_particles.device, torch.device(device)
             )
         )
+    if dtype is not None and init_particles.dtype != dtype:
+        raise ValueError(
+            "Unexpected dtype for init_particles: got {}, expected {}".format(
+                init_particles.dtype, dtype
+            )
+        )
     return torch.as_tensor(init_particles, device=device).clone()
 
 
@@ -55,12 +71,12 @@ def batched_grad_log_density_factory(
     log_density: Callable,
     is_log_density_batched: bool,
     grad_log_density: Optional[Callable],
-) -> BatchGradLogDensity:
+) -> BatchLogDensityGrad:
     if grad_log_density is None:
         if is_log_density_batched:
-            return torch.func.grad(lambda p: log_density(p).sum())
+            return torch.func.grad(lambda p, a: log_density(p, a).sum())
         else:
-            return torch.vmap(torch.func.grad(log_density))
+            return torch.vmap(torch.func.grad(log_density), in_dims=(0, None))
     else:
         return grad_log_density
 
@@ -68,9 +84,18 @@ def batched_grad_log_density_factory(
 def quantile_distance(pts: BatchPtType, quantile: float = 0.5) -> Float:
     """If quantile <= 0, get minimum. If quantile >= 1, get maximum"""
     assert pts.ndim == 2
-    diffs = torch.sum(torch.square(pts.unsqueeze(0) - pts.unsqueeze(1)), -1).sqrt_()
+    diffs = torch.sum(torch.square(pts.unsqueeze(0) - pts.unsqueeze(1)), dim=-1).sqrt_()
     diffs_idxs = torch.triu_indices(
         pts.shape[0], pts.shape[0], offset=1, device=pts.device
     )
     diffs_list = diffs[diffs_idxs[0], diffs_idxs[1]]
     return torch.quantile(diffs_list, quantile)
+
+
+IterType = TypeVar("IterType")
+
+
+def infinite_iter(iterable: Iterable[IterType]):
+    while True:
+        for x in iter(iterable):
+            yield x

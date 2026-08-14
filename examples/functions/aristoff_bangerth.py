@@ -16,7 +16,9 @@ from functools import partial
 import torch
 from torch import Tensor
 from typing import Optional
+from jaxtyping import Float
 from nak_torch import GaussianModel
+from nak_torch.tools.types import BatchForwardModel, BatchPtType
 if __name__ == '__main__':
     torch.set_default_dtype(torch.float64)
 
@@ -249,7 +251,7 @@ def build_forward_solver_args(N, N_obs, device=None, dtype: Optional[torch.dtype
         [-1./6,  2./3,  -1./6,  -1./3],
         [-1./3, -1./6,   2./3,  -1./6],
         [-1./6, -1./3,  -1./6,   2./3]
-    ], device=device)
+    ], dtype=dtype, device=device)
 
     # Locate boundary labels
     boundaries = torch.concat((
@@ -269,13 +271,13 @@ def build_forward_solver_args(N, N_obs, device=None, dtype: Optional[torch.dtype
 ###################### forward solver function ############################
 ###########################################################################
 def forward_solver(
-        theta: Tensor, # (64,)
+        theta: BatchPtType, # (N_batch, 64)
         N: int,
-        M: Tensor, # (N_obs, N)
-        boundaries: Tensor, # (4*N,),
-        A_loc: Tensor, # (4, 4),
-        b: Tensor, # ((N+1)**2, )
-) -> Tensor: # (N+1, )
+        M: Float[Tensor, "obs grid"], # (N_obs, N)
+        boundaries: Float[Tensor, " 4*grid"], # (4*N,),
+        A_loc: Float[Tensor, "p p"], # (4, 4)
+        b: Float[Tensor, " (grid+1)**2"], # ((N+1)**2, )
+) -> Float[Tensor, "batch obs"]: # (N+1, )
     """
     Solve Poisson PDE for Aristoff-Bangerth example.
 
@@ -321,7 +323,7 @@ def forward_solver(
 
     A_rows = A_idxs
     A_cols = A_idxs.permute((0,2,1))
-    A_dens = torch.zeros((N_batch, Np1**2, Np1**2))
+    A_dens = torch.zeros((N_batch, Np1**2, Np1**2), device=theta.device, dtype=theta.dtype)
     # Unroll loop
     A_dens[:,A_rows[:,0,0],A_cols[:,0,0]] += A_locs[:,:,0,0]
     A_dens[:,A_rows[:,0,1],A_cols[:,0,1]] += A_locs[:,:,0,1]
@@ -343,7 +345,6 @@ def forward_solver(
     A_dens[:,boundaries, :] = 0.
     A_dens[:,:,boundaries] = 0.
     A_dens[:,boundaries, boundaries] = 1.
-
     # Solve linear equation for coefficients, U, and then
     # get the Z vector by multiplying by the measurement matrix
     return torch.linalg.solve(A_dens, b.repeat(N_batch,1))
@@ -359,8 +360,8 @@ def log_prior(log_theta: Tensor, sig_pr_sq: float):
     norm_sq = log_theta.square().sum(-1)
     return -norm_sq / (2 * sig_pr_sq)
 
-def build_forward_solver(N: int, H_obs: Tensor, *solve_args):
-    def prefill_forward_solver(log_theta: Tensor):
+def build_forward_solver(N: int, H_obs: Tensor, *solve_args) -> BatchForwardModel:
+    def prefill_forward_solver(log_theta: Tensor, _ = None):
         return forward_solver(log_theta.exp(), N, H_obs, *solve_args) @ H_obs.T
     return prefill_forward_solver
 

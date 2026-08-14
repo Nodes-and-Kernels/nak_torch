@@ -55,7 +55,7 @@ class JokerData:
 """
 
 
-def joker_logpdf_full(data: JokerData, x):
+def joker_logpdf_full(data: JokerData, x, _ = None):
     x = (x - data.face_shift) @ data.face_inv_scale
     left_eye_eval = joker_eye_logpdf(
         data.left_eye_shift, data.left_eye_inv_stds, x
@@ -101,7 +101,7 @@ def JokerSampler(data: JokerData) -> Callable[[Any, int], Any]:
     return sampler
 
 
-logpdf: Callable[[Tensor], Tensor] = partial(joker_logpdf_full, JokerData())
+logpdf: Callable[[Tensor, Any], Tensor] = partial(joker_logpdf_full, JokerData())
 sample: Callable[[torch.Generator, int], Tensor] = JokerSampler(JokerData())
 def prior_sample(rng: torch.Generator, N_samples: int):
     return torch.normal(0., 2., size=(N_samples, 2), generator=rng, device=rng.device)

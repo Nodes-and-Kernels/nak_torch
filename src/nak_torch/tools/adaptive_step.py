@@ -780,7 +780,7 @@ def step(
 ]:
     """given y(t) and function (t,y,args)->f(t,y,args), return (dt, t, state, y(t+dt), accept)"""
     method_state, controller_state = integrator_state
-    step_out = step_method.step(term, y, t, dt, method_state, args=args)
+    step_out = step_method.internal_step(term, y, t, dt, method_state, args=args)
     step_result, method_state_next, method_status = step_out
     controller_out = step_size_controller.adapt_step_size(
         dt, y, step_result, controller_state
