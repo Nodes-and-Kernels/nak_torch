@@ -1,0 +1,22 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Nodes and Kernels
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Daniel
+    family-names: Sharp
+  - given-names: Ayoub
+    family-names: Belhadji
+identifiers:
+  - type: url
+    value: 'https://arxiv.org/abs/2605.14142'
+    description: >-
+      To Discretize Continually: Mean shift interacting
+      particle systems for Bayesian inference
+repository-code: 'https://github.com/Nodes-and-Kernels/nak_torch/'
+license: MIT
